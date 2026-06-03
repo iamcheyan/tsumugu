@@ -119,18 +119,40 @@
             {% endblock %}
         </main>
 
-        <!-- Right Sidebar - Download Queue -->
+        <!-- Right Sidebar - Downloads & Activity -->
         <aside class="download-queue-panel d-flex flex-column flex-shrink-0 border-start" id="download-queue">
-            <div class="p-2 px-3 border-bottom d-flex justify-content-between align-items-center" style="font-size: 0.85rem;">
-                <span class="fw-semibold text-muted"><i class="bi bi-list-ol me-1"></i>Downloads</span>
-                <div class="d-flex align-items-center gap-2">
-                    <button class="btn btn-sm btn-outline-secondary py-0" onclick="clearCompletedTasks()" title="Clear completed" style="font-size: 0.7rem;">
-                        <i class="bi bi-trash"></i>
-                    </button>
-                    <span id="queue-count" class="badge bg-primary" style="font-size: 0.7rem;">0/0</span>
-                </div>
+            <!-- Tabs -->
+            <div class="d-flex border-bottom" style="font-size: 0.8rem;">
+                <button class="sidebar-tab flex-fill active" id="tab-downloads" onclick="switchSidebarTab('downloads')">
+                    <i class="bi bi-cloud-download me-1"></i>Downloads
+                    <span id="queue-count" class="badge bg-primary ms-1" style="font-size: 0.65rem;">0</span>
+                </button>
+                <button class="sidebar-tab flex-fill" id="tab-activity" onclick="switchSidebarTab('activity')">
+                    <i class="bi bi-clock-history me-1"></i>Activity
+                    <span id="activity-count" class="badge bg-secondary ms-1" style="font-size: 0.65rem;">0</span>
+                </button>
             </div>
-            <div id="queue-tasks" class="flex-grow-1 overflow-auto p-2 d-flex flex-column gap-1" style="font-size: 0.8rem;">
+            <!-- Downloads Panel -->
+            <div id="panel-downloads" class="flex-grow-1 overflow-auto p-2 d-flex flex-column gap-1" style="font-size: 0.8rem;">
+            </div>
+            <!-- Activity Log Panel -->
+            <div id="panel-activity" class="flex-grow-1 overflow-auto p-2 d-flex flex-column gap-1" style="font-size: 0.8rem; display: none;">
+                <div id="activity-log"></div>
+            </div>
+            <!-- Activity Log Footer -->
+            <div id="activity-footer" class="p-2 border-top d-flex justify-content-between align-items-center" style="font-size: 0.75rem; display: none;">
+                <button class="btn btn-sm btn-outline-secondary py-0" onclick="clearCompletedTasks()" title="Clear completed downloads" style="font-size: 0.7rem;">
+                    <i class="bi bi-trash me-1"></i>Clear Downloads
+                </button>
+                <button class="btn btn-sm btn-outline-secondary py-0" onclick="clearActivityLog()" title="Clear all activity" style="font-size: 0.7rem;">
+                    <i class="bi bi-x-lg me-1"></i>Clear Log
+                </button>
+            </div>
+            <!-- Downloads Footer (shown when downloads tab active) -->
+            <div id="downloads-footer" class="p-2 border-top d-flex justify-content-end" style="font-size: 0.75rem;">
+                <button class="btn btn-sm btn-outline-secondary py-0" onclick="clearCompletedTasks()" title="Clear completed" style="font-size: 0.7rem;">
+                    <i class="bi bi-trash"></i>
+                </button>
             </div>
         </aside>
 
@@ -394,6 +416,99 @@
         document.addEventListener('DOMContentLoaded', checkNasStatus);
     </script>
 
+    <!-- Sidebar Tabs & Activity Log -->
+    <script>
+        // ==================== Sidebar Tab Switching ====================
+        function switchSidebarTab(tab) {
+            const dlPanel = document.getElementById('panel-downloads');
+            const actPanel = document.getElementById('panel-activity');
+            const dlTab = document.getElementById('tab-downloads');
+            const actTab = document.getElementById('tab-activity');
+            const dlFooter = document.getElementById('downloads-footer');
+            const actFooter = document.getElementById('activity-footer');
+
+            if (tab === 'downloads') {
+                dlPanel.style.display = '';
+                actPanel.style.display = 'none';
+                dlTab.classList.add('active');
+                actTab.classList.remove('active');
+                dlFooter.style.display = '';
+                actFooter.style.display = 'none';
+            } else {
+                dlPanel.style.display = 'none';
+                actPanel.style.display = '';
+                dlTab.classList.remove('active');
+                actTab.classList.add('active');
+                dlFooter.style.display = 'none';
+                actFooter.style.display = '';
+            }
+        }
+
+        // ==================== Activity Log ====================
+        let _activityLog = [];
+
+        function addActivityLog(message, type) {
+            const entry = { id: Date.now() + Math.random(), message, type, time: new Date() };
+            _activityLog.unshift(entry);
+            // Keep max 100 entries
+            if (_activityLog.length > 100) _activityLog.pop();
+            renderActivityLog();
+        }
+
+        function renderActivityLog() {
+            const container = document.getElementById('activity-log');
+            const countBadge = document.getElementById('activity-count');
+            if (!container) return;
+
+            countBadge.textContent = _activityLog.length;
+
+            if (_activityLog.length === 0) {
+                container.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-inbox fs-4 d-block mb-1"></i><span style="font-size:0.75rem;">No activity yet</span></div>';
+                return;
+            }
+
+            container.innerHTML = _activityLog.map(entry => {
+                const colors = {
+                    success: { bg: 'rgba(34,197,94,0.08)', border: '#22c55e', icon: '✓', iconColor: '#22c55e' },
+                    error:   { bg: 'rgba(239,68,68,0.08)',  border: '#ef4444', icon: '✗', iconColor: '#ef4444' },
+                    warning: { bg: 'rgba(251,191,36,0.08)', border: '#fbbf24', icon: '⚠', iconColor: '#fbbf24' },
+                    info:    { bg: 'rgba(96,165,250,0.08)', border: '#60a5fa', icon: 'ℹ', iconColor: '#60a5fa' },
+                };
+                const c = colors[type] || colors.info;
+                const timeStr = entry.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                return `<div class="activity-entry" style="background:${c.bg}; border-left: 3px solid ${c.border}; border-radius: 6px; padding: 8px 10px; display: flex; align-items: flex-start; gap: 8px;">
+                    <span style="color:${c.iconColor}; font-size: 0.85rem; flex-shrink: 0; margin-top: 1px;">${c.icon}</span>
+                    <div style="flex:1; min-width:0;">
+                        <div style="white-space: pre-line; word-break: break-word;">${escapeHtml(entry.message)}</div>
+                        <div class="text-muted mt-1" style="font-size: 0.65rem;">${timeStr}</div>
+                    </div>
+                    <button onclick="removeActivityLog(${entry.id})" style="background:none; border:none; color:var(--bs-secondary-color); cursor:pointer; font-size:0.9rem; padding:0 2px; flex-shrink:0; opacity:0.6;" onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=0.6">×</button>
+                </div>`;
+            }).join('');
+        }
+
+        function removeActivityLog(id) {
+            _activityLog = _activityLog.filter(e => e.id !== id);
+            renderActivityLog();
+        }
+
+        function clearActivityLog() {
+            _activityLog = [];
+            renderActivityLog();
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        // Initialize empty state
+        document.addEventListener('DOMContentLoaded', function() {
+            renderActivityLog();
+        });
+    </script>
+
     <!-- Settings Overlay -->
     <div id="settings-overlay" class="settings-overlay" style="display: none;" onclick="if(event.target===this)closeSettings()">
         <div class="settings-modal">
@@ -416,6 +531,10 @@
                     <button class="settings-nav-item" data-tab="ai" onclick="switchSettingsTab('ai', this)">
                         <i class="bi bi-robot"></i>
                         <span>AI Model</span>
+                    </button>
+                    <button class="settings-nav-item" data-tab="sync" onclick="switchSettingsTab('sync', this)">
+                        <i class="bi bi-arrow-repeat"></i>
+                        <span>File Sync</span>
                     </button>
                     <button class="settings-nav-item" data-tab="dependencies" onclick="switchSettingsTab('dependencies', this)">
                         <i class="bi bi-cpu"></i>
@@ -494,11 +613,15 @@
                 case 'about':
                     html = buildAboutTab();
                     break;
+                case 'sync':
+                    html = buildSyncTab();
+                    break;
             }
             content.innerHTML = html;
             // Execute tab-specific init scripts
             if (tab === 'nas') initNasTab(cfg);
             if (tab === 'ai') initAiTab(cfg);
+            if (tab === 'sync') initSyncTab();
         }
 
         function switchSettingsTab(tab, btn) {
@@ -691,6 +814,185 @@
                     </div>
                 </div>
             </div>`;
+        }
+
+        /* ===================== File Sync Tab ===================== */
+        function buildSyncTab() {
+            return `
+            <div class="settings-section">
+                <h6 class="settings-section-title"><i class="bi bi-arrow-repeat me-2"></i>File Sync</h6>
+                <p class="settings-hint mb-3">Manage folders for device synchronization. Files are indexed by MD5 hash.</p>
+
+                <!-- Sync Status -->
+                <div class="settings-group">
+                    <div id="sync-status-area" class="p-2 rounded bg-body-tertiary">
+                        <div class="text-center text-muted py-2">
+                            <div class="spinner-border spinner-border-sm me-1"></div>Loading status...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Add Folder -->
+                <div class="settings-group">
+                    <label class="settings-label">Add Sync Folder</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-folder-plus"></i></span>
+                        <input type="text" id="sync-new-folder" class="form-control" placeholder="/Music">
+                        <button class="btn btn-primary" onclick="addSyncFolder()">
+                            <i class="bi bi-plus-lg"></i>
+                        </button>
+                    </div>
+                    <div class="form-text">Path relative to NAS root (e.g. /Music, /Podcast)</div>
+                </div>
+
+                <!-- Sync Folders List -->
+                <div class="settings-group">
+                    <label class="settings-label">Sync Folders</label>
+                    <div id="sync-folders-list" class="d-flex flex-column gap-1">
+                        <div class="text-center text-muted py-2">
+                            <div class="spinner-border spinner-border-sm me-1"></div>Loading folders...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="settings-actions mt-3">
+                    <button class="btn btn-primary btn-sm fw-semibold" onclick="rescanSync()">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Rescan Now
+                    </button>
+                    <span id="sync-action-result" class="small ms-2"></span>
+                </div>
+            </div>`;
+        }
+
+        async function initSyncTab() {
+            await Promise.all([loadSyncFolders(), loadSyncStatus()]);
+        }
+
+        async function loadSyncFolders() {
+            const listEl = document.getElementById('sync-folders-list');
+            if (!listEl) return;
+            try {
+                const res = await fetch('/api/sync/folders');
+                const data = await res.json();
+                if (data.folders.length === 0) {
+                    listEl.innerHTML = '<div class="text-center text-muted py-2 small">No sync folders configured</div>';
+                    return;
+                }
+                listEl.innerHTML = data.folders.map(f => `
+                    <div class="d-flex justify-content-between align-items-center p-2 rounded bg-body-tertiary">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-folder-fill text-warning"></i>
+                            <div>
+                                <div class="fw-medium">${escHtml(f.name)}</div>
+                                <div class="small text-muted">${escHtml(f.path)}</div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" ${f.enabled ? 'checked' : ''}
+                                       onchange="toggleSyncFolder(${f.id})" title="Enable/Disable">
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger py-0" onclick="removeSyncFolder(${f.id}, '${escHtml(f.path)}')" title="Remove">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                listEl.innerHTML = '<div class="text-center text-danger py-2 small">Failed to load folders</div>';
+            }
+        }
+
+        async function loadSyncStatus() {
+            const area = document.getElementById('sync-status-area');
+            if (!area) return;
+            try {
+                const res = await fetch('/api/sync/status');
+                const status = await res.json();
+                const lastScan = status.generated_at
+                    ? new Date(status.generated_at * 1000).toLocaleString()
+                    : 'Never';
+                area.innerHTML = `
+                    <div class="d-flex gap-4 flex-wrap" style="font-size: 0.85rem;">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-files ${status.indexed ? 'text-success' : 'text-muted'}"></i>
+                            <span>${status.file_count} files indexed</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-folder ${status.folder_count > 0 ? 'text-warning' : 'text-muted'}"></i>
+                            <span>${status.folder_count} folders</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-clock text-info"></i>
+                            <span>Last scan: ${lastScan}</span>
+                        </div>
+                    </div>`;
+            } catch (e) {
+                area.innerHTML = '<div class="text-center text-danger py-2 small">Failed to load status</div>';
+            }
+        }
+
+        async function addSyncFolder() {
+            const input = document.getElementById('sync-new-folder');
+            const path = input.value.trim();
+            if (!path) { showToast('Please enter a folder path', 'error'); return; }
+
+            const resultEl = document.getElementById('sync-action-result');
+            resultEl.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>Adding...</span>';
+
+            try {
+                const res = await fetch('/api/sync/folders', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ path })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    resultEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>' + data.message + '</span>';
+                    input.value = '';
+                    loadSyncFolders();
+                    loadSyncStatus();
+                } else {
+                    resultEl.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>' + (data.detail || 'Failed') + '</span>';
+                }
+            } catch (e) {
+                resultEl.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>';
+            }
+            setTimeout(() => resultEl.innerHTML = '', 3000);
+        }
+
+        async function removeSyncFolder(id, path) {
+            if (!confirm('Remove "' + path + '" from sync list?')) return;
+            try {
+                await fetch('/api/sync/folders/' + id, { method: 'DELETE' });
+                showToast('Removed from sync list', 'success');
+                loadSyncFolders();
+                loadSyncStatus();
+            } catch (e) { showToast('Failed to remove', 'error'); }
+        }
+
+        async function toggleSyncFolder(id) {
+            try {
+                await fetch('/api/sync/folders/' + id + '/toggle', { method: 'PUT' });
+                loadSyncFolders();
+                loadSyncStatus();
+            } catch (e) { showToast('Failed to toggle', 'error'); }
+        }
+
+        async function rescanSync() {
+            const resultEl = document.getElementById('sync-action-result');
+            resultEl.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>Scanning...</span>';
+            try {
+                const res = await fetch('/api/sync/rescan', { method: 'POST' });
+                const data = await res.json();
+                resultEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>' + data.message + '</span>';
+                loadSyncFolders();
+                loadSyncStatus();
+            } catch (e) {
+                resultEl.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Rescan failed</span>';
+            }
+            setTimeout(() => resultEl.innerHTML = '', 4000);
         }
 
         /* ===================== Helpers ===================== */

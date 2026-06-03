@@ -21,7 +21,13 @@
 <script>
     // ==================== Toast Notification ====================
     function showToast(message, type = 'info', duration = 3000) {
+        // Log to activity panel (persistent)
+        if (typeof addActivityLog === 'function') {
+            addActivityLog(message, type);
+        }
+
         const container = document.getElementById('toast-container');
+        if (!container) return;
         const toast = document.createElement('div');
 
         let bgColor, icon, borderColor;
@@ -69,7 +75,7 @@
         `;
         container.appendChild(toast);
 
-        // Auto remove
+        // Auto remove toast (but activity log stays)
         if (duration > 0) {
             setTimeout(() => {
                 if (toast.parentElement) {

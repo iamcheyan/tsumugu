@@ -39,3 +39,13 @@ class FileMetadata(Base):
     modified_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     download_id = Column(Integer, nullable=True)  # Link to download_history if file was downloaded
+
+
+class SyncFolder(Base):
+    __tablename__ = "sync_folders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    path = Column(String(1024), unique=True, index=True)  # Relative to NAS root, e.g. "/Music"
+    name = Column(String(255))  # Display name
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

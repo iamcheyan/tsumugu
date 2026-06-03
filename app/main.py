@@ -7,7 +7,7 @@ import shutil
 
 from .database import create_tables, get_db
 from .models import Config
-from .routers import config_router, files_router, youtube_router, audio_router
+from .routers import config_router, files_router, youtube_router, audio_router, sync_router
 from .download_manager import download_manager
 from .compressor import compressor
 from .nas_mount import mount_nas
@@ -52,10 +52,11 @@ async def startup_event():
     # Migration: add 'tag' column to file_metadata if missing
     try:
         from .database import engine
+        from sqlalchemy import text
         with engine.connect() as conn:
-            cols = [r[1] for r in conn.execute("PRAGMA table_info(file_metadata)").fetchall()]
+            cols = [r[1] for r in conn.execute(text("PRAGMA table_info(file_metadata)")).fetchall()]
             if "tag" not in cols:
-                conn.execute("ALTER TABLE file_metadata ADD COLUMN tag VARCHAR(50)")
+                conn.execute(text("ALTER TABLE file_metadata ADD COLUMN tag VARCHAR(50)"))
                 conn.commit()
                 print("[DB] Added 'tag' column to file_metadata")
     except Exception as e:
@@ -145,6 +146,20 @@ async def startup_event():
             db.add(Config(key="ffmpeg_status", value=ffmpeg_status, description="ffmpeg installation status"))
         
         db.commit()
+
+        # Add default sync folder (/Music) if no sync folders configured
+        from .models import SyncFolder
+        sync_count = db.query(SyncFolder).count()
+        if sync_count == 0:
+            # Check if /Music exists in NAS root
+            nas_root_val = db.query(Config).filter(Config.key == "nas_root").first()
+            if nas_root_val:
+                music_path = os.path.join(str(nas_root_val.value), "Music")
+                if os.path.isdir(music_path):
+                    db.add(SyncFolder(path="/Music", name="Music", enabled=True))
+                    db.commit()
+                    print("[Sync] Added default sync folder: /Music")
+
     finally:
         db.close()
 
@@ -153,6 +168,7 @@ app.include_router(config_router)
 app.include_router(files_router)
 app.include_router(youtube_router)
 app.include_router(audio_router)
+app.include_router(sync_router)
 
 # Main routes
 @app.get("/", response_class=HTMLResponse)
