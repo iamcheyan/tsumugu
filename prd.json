@@ -1,0 +1,210 @@
+{
+  "project": "NAS File Browser + YouTube Audio Downloader",
+  "branchName": "ralph/nas-web-youtube-python-fastapi-jinja2-ht",
+  "description": "A lightweight personal NAS file browser with integrated YouTube audio download, auto-conversion, and auto-split capabilities. Built with Python/FastAPI/Jinja2/HTMX/SQLite/yt-dlp/ffmpeg/Docker.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Project scaffolding, database schema, and basic layout",
+      "description": "As a developer, I want the project initialized with FastAPI/Jinja2/HTMX/SQLite, database schema created, and a basic dark-theme three-column layout shell (tree sidebar, file list main area, player panel) so that all subsequent features have a foundation to build on.",
+      "acceptanceCriteria": [
+        "Initialize FastAPI project with Jinja2 templates and HTMX",
+        "Create SQLite database with tables for config, download_history, and file_metadata",
+        "Implement basic module structure (file management, YouTube download, audio processing, config)",
+        "Render a basic layout with left directory tree sidebar, center file list area, and right player panel (collapsed by default)",
+        "Dark theme applied as default",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Config management backend and UI with dependency detection",
+      "description": "As a user, I want to configure the NAS root directory and file deletion strategy through a Web UI, and I want the system to auto-detect yt-dlp and ffmpeg on startup so that I can set up the tool without touching config files.",
+      "acceptanceCriteria": [
+        "Backend routes for reading and updating system config in SQLite",
+        "Auto-detect yt-dlp and ffmpeg installation on startup, store status in config",
+        "Web UI page to set NAS root directory path",
+        "Web UI page to choose file deletion strategy (recycle bin or direct delete)",
+        "Display dependency status (yt-dlp installed/missing, ffmpeg installed/missing)",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Directory tree navigation",
+      "description": "As a user, I want a directory tree in the left sidebar showing the NAS directory structure, so that I can quickly navigate to any target folder.",
+      "acceptanceCriteria": [
+        "Display NAS root directory and subdirectories as a tree in the left sidebar",
+        "Support expand/collapse of directory nodes via HTMX",
+        "Click a directory to select it and update the file list",
+        "Show current selected directory highlighted",
+        "Support returning to parent directory",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "File list display",
+      "description": "As a user, I want to see a file list in the main area showing filename, size, modified time, and type with icons, so that I can understand the contents of the current directory.",
+      "acceptanceCriteria": [
+        "Display file list with columns: filename, size, modified time, file type",
+        "Show file type icons (folder, audio, generic file)",
+        "Double-click a folder to navigate into it",
+        "Display breadcrumb or path indicator for current directory",
+        "Return to parent directory via button",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "File search and sorting",
+      "description": "As a user, I want to search files by name and sort the file list by different fields, so that I can quickly find and organize files.",
+      "acceptanceCriteria": [
+        "Search input that filters files by name in the current directory",
+        "Sort dropdown/buttons supporting sort by name, size, modified time, type",
+        "Sorting toggles between ascending and descending",
+        "Search and sort update the file list via HTMX without full page reload",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "File operations (create, rename, delete, move)",
+      "description": "As a user, I want to create new folders, rename files, delete files, and move files, so that I can manage and organize my files directly in the browser.",
+      "acceptanceCriteria": [
+        "Create new folder button that prompts for name and creates directory",
+        "Rename file/folder via context menu or inline edit",
+        "Delete file/folder with confirmation dialog; behavior matches configured deletion strategy (recycle bin or direct delete)",
+        "Move file/folder via drag-and-drop or cut/paste",
+        "All file operations update the file list via HTMX",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Download bar with URL input, format selection, and split options",
+      "description": "As a user, I want a fixed download bar at the top of the page where I can paste a YouTube URL, select audio format, and configure auto-split options, so that I can start a download from any view.",
+      "acceptanceCriteria": [
+        "Fixed download bar at the top of the page, always visible",
+        "YouTube URL input field with validation (YouTube URLs only)",
+        "Audio format dropdown with options: MP3, M4A, FLAC",
+        "Auto-split toggle checkbox to enable/disable song splitting",
+        "Split mode selector (chapter info / silence detection) shown when auto-split is enabled",
+        "Keep original file checkbox shown when auto-split is enabled",
+        "Save location defaults to current browsed directory",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Video info fetching and download preview",
+      "description": "As a user, I want the system to automatically fetch video information (cover image, title, duration) when I paste a YouTube URL, so that I can confirm the correct video before downloading.",
+      "acceptanceCriteria": [
+        "Auto-fetch video metadata (title, thumbnail, duration) after valid YouTube URL is entered",
+        "Display preview card with video title, thumbnail, and duration",
+        "Show confirm/download button on the preview card",
+        "Handle invalid URLs or unavailable videos with error message",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Implemented with yt-dlp backend endpoint, auto-fetch on valid URL input, preview card with thumbnail/title/uploader/views/duration, error handling for invalid/unavailable videos"
+    },
+    {
+      "id": "US-009",
+      "title": "Download execution with real-time progress and queue",
+      "description": "As a user, I want to start downloads and see real-time progress, with support for multiple queued tasks, so that I can monitor and batch-download audio files.",
+      "acceptanceCriteria": [
+        "Backend: yt-dlp download and ffmpeg audio conversion pipeline",
+        "Real-time progress bar showing download percentage, current file, and estimated time remaining",
+        "Progress updates pushed via WebSocket or SSE",
+        "Support multiple concurrent download tasks in a queue",
+        "Download complete triggers automatic file list refresh",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Implemented download manager with WebSocket real-time progress, concurrent task queue (max 3), yt-dlp download with ffmpeg conversion, progress bar UI, auto-refresh file list on completion"
+    },
+    {
+      "id": "US-010",
+      "title": "Audio auto-split for compilations",
+      "description": "As a user, I want the system to automatically split downloaded audio compilations into individual tracks using chapter info or silence detection, so that I get properly separated songs.",
+      "acceptanceCriteria": [
+        "After download, analyze chapter metadata if split mode is 'chapter info'",
+        "Perform silence detection if split mode is 'silence detection'",
+        "Split audio file into individual tracks based on detected boundaries",
+        "Rename split files using chapter titles when available",
+        "Option to keep or discard the original unsplit file",
+        "Split files appear in the current directory after processing",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Implemented audio splitter with chapter info and silence detection using ffmpeg, integrated into download manager with real-time progress UI"
+    },
+    {
+      "id": "US-011",
+      "title": "Lightweight audio player",
+      "description": "As a user, I want a lightweight audio player that appears when I click an audio file, so that I can preview downloaded audio without leaving the file browser.",
+      "acceptanceCriteria": [
+        "Click an audio file to open a lightweight player in the right panel",
+        "Play/pause toggle control",
+        "Progress bar with scrub/drag to seek",
+        "Display current time and total duration",
+        "Player stays open while browsing other files",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Implemented audio player with click-to-play, play/pause toggle, progress bar with scrub/drag, time display, and HTMX integration. Player panel expands when audio file is clicked and stays open while browsing."
+    },
+    {
+      "id": "US-012",
+      "title": "Responsive design and final polish",
+      "description": "As a user, I want the application to work well on different screen sizes with a polished dark-theme interface, so that I can use it from both desktop and mobile devices.",
+      "acceptanceCriteria": [
+        "Responsive layout adapts to different screen widths",
+        "Mobile view stacks panels vertically or provides toggle navigation",
+        "Dark theme consistently applied across all components",
+        "Consistent spacing, typography, and iconography",
+        "Basic mobile usability for core file browsing features",
+        "Typecheck passes",
+        "Verify in browser"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "Implemented responsive design with CSS media queries for mobile and tablet, added mobile menu toggle and player toggle buttons, touch-friendly improvements, dark theme consistency, and accessibility features"
+    }
+  ]
+}

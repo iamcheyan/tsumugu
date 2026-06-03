@@ -1,0 +1,324 @@
+# Ralph Progress Log
+Started: 2026-06-01 09:17:24
+---
+
+## 2026-06-01 19:00 - US-006
+- Implemented file operations (create, rename, delete, move)
+- Added backend endpoints for file operations: create-folder, rename, delete, move
+- Implemented recycle bin support with configurable deletion strategy
+- Added context menu for file operations (rename, cut, copy, delete)
+- Added create folder dialog with HTMX integration
+- Added rename dialog with HTMX integration
+- Added delete confirmation dialog with HTMX integration
+- Implemented cut/paste functionality with clipboard state
+- Added drag-and-drop support for moving files between folders
+- Added file selection with checkboxes and bulk delete capability
+- Updated file list template with file operations toolbar and context menu
+- Added CSS styles for context menu, modals, drag-and-drop, and file operations
+- Typecheck passes (mypy with --ignore-missing-imports)
+- All file operations tested and working correctly
+
+**Files changed:**
+- `app/routers/files.py` - Added create-folder, rename, delete, move endpoints
+- `app/templates/components/file_list.html` - Added file operations UI (toolbar, context menu, dialogs)
+- `app/static/css/style.css` - Added styles for file operations UI elements
+
+**Learnings for future iterations:**
+- Use application/x-www-form-urlencoded for HTMX form submissions with FastAPI Form() parameters
+- Context menus need proper event handling to avoid conflicts with other click handlers
+- Drag-and-drop requires careful state management to handle source and destination paths
+- Recycle bin implementation uses timestamp prefix to avoid name conflicts
+- File selection with checkboxes requires proper state management for bulk operations
+- HTMX integration works well for real-time file list updates after operations
+---
+
+## 2026-06-01 19:15 - US-008
+- Implemented video info fetching and download preview
+- Added yt-dlp backend endpoint for fetching video metadata (title, thumbnail, duration, uploader, view count)
+- Implemented URL validation with multiple YouTube URL patterns (youtube.com/watch, youtu.be, embed, shorts)
+- Added async video info fetching using yt-dlp with thread pool executor
+- Created preview card component with video thumbnail, title, uploader, view count, and formatted duration
+- Added auto-fetch functionality that triggers when valid YouTube URL is entered
+- Implemented error handling for invalid URLs and unavailable videos
+- Added CSS styles for preview card with smooth animation
+- Added confirm/download and cancel buttons on preview card
+- Typecheck passes (mypy with --ignore-missing-imports)
+- Tested with valid YouTube URLs, invalid URLs, and unavailable videos
+
+**Files changed:**
+- `app/routers/youtube.py` - Added actual yt-dlp integration for video info fetching with URL validation and async execution
+- `app/templates/components/download_bar.html` - Added preview card HTML, error message display, and JavaScript for auto-fetch and preview handling
+- `app/static/css/style.css` - Added styles for video preview card, thumbnail, duration badge, and error message
+- `requirements.txt` - Added yt-dlp dependency
+
+**Learnings for future iterations:**
+- yt-dlp operations should be run in thread pool executor to avoid blocking the async FastAPI event loop
+- YouTube URL validation requires multiple pattern matching to cover different URL formats
+- Preview card should include all relevant video metadata for user confirmation
+- Error handling should distinguish between invalid URLs and unavailable videos
+- yt-dlp provides rich metadata including thumbnail, duration, uploader, and view count
+- Auto-fetch should be triggered after URL validation to avoid unnecessary API calls
+---
+
+## 2026-06-01 18:25 - US-001
+- Implemented project scaffolding with FastAPI/Jinja2/HTMX/SQLite
+- Created database schema with tables for config, download_history, and file_metadata
+- Set up module structure: file management, YouTube download, audio processing, config routers
+- Created basic three-column layout: directory tree sidebar, file list main area, player panel
+- Applied dark theme as default with CSS variables
+- Typecheck passes (mypy with --ignore-missing-imports)
+- Server tested and all endpoints functional
+
+**Files created:**
+- `app/` directory structure with main.py, database.py, models.py
+- `app/routers/` with config.py, files.py, youtube.py, audio.py
+- `app/templates/` with base.html and index.html
+- `app/static/css/style.css` for dark theme and layout
+- `app/static/js/main.js` for basic interactivity
+- `requirements.txt` for Python dependencies
+- `run.py` for development server
+
+**Learnings for future iterations:**
+- SQLAlchemy Column assignment requires `setattr()` for mypy compatibility
+- FastAPI TemplateResponse signature: `templates.TemplateResponse(name=..., request=..., context={})`
+- HTMX loaded via CDN, not Python package
+- SQLite database auto-created on startup with default config
+- Python venv required due to externally-managed-environment
+---
+
+## 2026-06-01 18:35 - US-002
+- Implemented config management backend and UI with dependency detection
+- Auto-detect yt-dlp and ffmpeg on startup using shutil.which()
+- Created settings page with HTMX for live config updates
+- Added dependency status display with installed/missing indicators
+- Backend routes for reading/updating config in SQLite
+- Typecheck passes (mypy with --ignore-missing-imports)
+
+**Files changed:**
+- `app/main.py` - Added startup dependency detection, settings route
+- `app/routers/config.py` - Added refresh-status endpoint, route ordering fix
+- `app/templates/settings.html` - New settings page template
+- `app/templates/base.html` - Added navigation links to settings, added content block
+- `app/static/css/style.css` - Added settings page styles, navigation styles
+
+**Learnings for future iterations:**
+- HTMX route ordering matters: specific routes (like /refresh-status) must come before parameterized routes (like /{key})
+- Use shutil.which() for reliable dependency detection across platforms
+- HTMX hx-vals with JS expressions need JSON.stringify() for proper serialization
+- FastAPI ConfigUpdate Pydantic model works well for HTMX form submissions
+- Base template needs {% block content %} placeholder for child templates to inject content
+---
+
+## 2026-06-01 18:45 - US-003
+- Implemented directory tree navigation with HTMX-based expand/collapse
+- Created backend endpoints for fetching directory tree and children
+- Added tree node templates for recursive directory display
+- Implemented directory selection with visual highlighting
+- Added parent directory navigation button
+- Added breadcrumb updates when navigating directories
+- Typecheck passes (mypy with --ignore-missing-imports)
+
+**Files changed:**
+- `app/routers/files.py` - Added tree and tree/children endpoints, directory tree building functions
+- `app/templates/base.html` - Added HTMX tree loading, JavaScript functions for tree interactions
+- `app/templates/index.html` - Added parent directory button and breadcrumb updates
+- `app/templates/components/tree.html` - New template for directory tree structure
+- `app/templates/components/tree_node.html` - New template for individual tree nodes
+- `app/templates/components/tree_children.html` - New template for lazy-loaded children
+- `app/static/css/style.css` - Added directory tree styling with selection highlighting
+
+**Learnings for future iterations:**
+- Use lazy loading with HTMX for directory tree children to improve performance
+- Need to handle PermissionError gracefully when building directory trees
+- SQLAlchemy Column types need explicit casting to str for mypy compatibility
+- TemplateResponse requires proper import from fastapi.responses, not fastapi directly
+- Directory tree nodes need proper ID naming for HTMX targeting (e.g., tree-children-/path)
+---
+
+## 2026-06-01 18:40 - US-004
+- Implemented file list display with columns: filename, size, modified time, file type
+- Added file type icons (folder 📁, audio 🎵, generic file 📄)
+- Implemented double-click navigation for folders via navigateToFolder() function
+- Updated breadcrumb/path indicator to show current directory
+- Added parent directory button functionality
+- Typecheck passes (mypy with --ignore-missing-imports)
+
+**Files changed:**
+- `app/routers/files.py` - Updated list_files endpoint to return actual file data with proper formatting
+- `app/templates/components/file_list.html` - New template for file list display with table layout
+- `app/templates/base.html` - Added selectDirectory(), navigateToFolder(), and updateBreadcrumb() functions
+- `app/templates/index.html` - Updated to load file list via HTMX on page load
+- `app/templates/components/tree_node.html` - Updated onclick to pass event parameter
+- `app/static/css/style.css` - Added file list table styles and empty directory styling
+- `app/main.py` - Added filesizeformat custom filter for human-readable file sizes
+
+**Learnings for future iterations:**
+- File list endpoint now returns HTML via TemplateResponse instead of JSON for HTMX integration
+- Use str() cast for dictionary values in sort functions to avoid mypy "object has no attribute" errors
+- Custom Jinja2 filters can be added via templates.env.filters dictionary
+- File type detection uses file extensions for audio files (.mp3, .wav, .flac, .m4a, .ogg, .aac, .wma)
+- Directories are sorted first in the file list for better UX
+---
+
+## 2026-06-01 18:50 - US-005
+- Implemented file search and sorting functionality
+- Added search input that filters files by name with 300ms delay for HTMX
+- Added sort dropdown with options: name, size, modified, type
+- Added sort order toggle button (ascending/descending)
+- Search and sort update file list via HTMX without page reload
+- Typecheck passes (mypy with --ignore-missing-imports)
+
+**Files changed:**
+- `app/routers/files.py` - Added search, sort, and order query parameters to list_files endpoint
+- `app/templates/index.html` - Updated search input with HTMX triggers, added sort controls with HTMX
+- `app/templates/components/file_list.html` - Added hidden inputs for current path, search, sort, order
+- `app/templates/base.html` - Updated selectDirectory() to pass all parameters to file list endpoint
+- `app/static/css/style.css` - Added styles for sort controls and sort order button
+
+**Learnings for future iterations:**
+- HTMX hx-include allows passing multiple form values to requests
+- Use hx-trigger="input changed delay:300ms" for search inputs to avoid excessive requests
+- Hidden inputs can store current state values for HTMX requests
+- Custom sort functions need explicit type casting to str() for mypy compatibility
+- Sort order toggle can be implemented with a simple boolean state variable
+
+## 2026-06-01 18:54 - US-007
+- Implemented download bar with URL input, format selection, and split options
+- Created fixed download bar component at top of page with YouTube URL validation
+- Added audio format dropdown (MP3, M4A, FLAC) and auto-split toggle
+- Implemented split mode selector and keep original checkbox (shown when auto-split enabled)
+- Save location defaults to current browsed directory and updates on directory change
+- Added CSS styles for download bar with dark theme consistency
+- Typecheck passes (mypy with --ignore-missing-imports)
+
+**Files changed:**
+- `app/templates/components/download_bar.html` - New template for download bar component
+- `app/templates/base.html` - Included download bar and updated selectDirectory to update save location
+- `app/static/css/style.css` - Added download bar styles and adjusted layout for fixed top bar
+
+**Learnings for future iterations:**
+- Fixed positioned elements require adjusting body padding and container height
+- Form validation with YouTube URL patterns can be done client-side with regex
+- Save location should update dynamically when directory selection changes
+- HTMX form submissions can be combined with client-side validation
+- Split options can be conditionally shown/hidden with CSS display toggling
+
+## 2026-06-01 20:15 - US-009
+- Implemented download execution with real-time progress and queue
+- Created download_manager.py module with DownloadManager class
+- Added WebSocket endpoint (/api/youtube/ws/progress) for real-time progress updates
+- Implemented concurrent download queue with configurable max concurrent tasks (default: 3)
+- Added yt-dlp download with ffmpeg audio conversion pipeline
+- Created DownloadTask dataclass to track individual download state
+- Added progress hooks for yt-dlp to capture download speed, ETA, and percentage
+- Implemented WebSocket broadcast to all connected clients for real-time updates
+- Added download queue UI with progress bars, status indicators, and cancel buttons
+- Implemented cancel download functionality via WebSocket and REST API
+- Auto-refresh file list when download completes using HTMX
+- Added CSS styles for download queue and progress UI with dark theme
+- Typecheck passes (mypy with --ignore-missing-imports)
+
+**Files changed:**
+- `app/download_manager.py` - New module for download queue management with WebSocket broadcasting
+- `app/routers/youtube.py` - Added WebSocket endpoint, updated download endpoint, added cancel and queue endpoints
+- `app/templates/components/download_bar.html` - Added download queue UI, WebSocket connection, progress updates
+- `app/static/css/style.css` - Added styles for download queue, progress bars, task status
+- `app/main.py` - Added download manager startup and shutdown hooks
+- `requirements.txt` - Added websockets dependency
+
+**Learnings for future iterations:**
+- WebSocket connections need proper lifecycle management with reconnection logic
+- yt-dlp progress hooks run in thread pool, need to use asyncio.ensure_future for non-blocking broadcasts
+- Download queue should have configurable max concurrent tasks to prevent resource exhaustion
+- Progress UI should show status-specific colors (pending=yellow, downloading=blue, converting=purple, completed=green, failed=red)
+- File list refresh should use HTMX after download completion for seamless UX
+- Cancel functionality should work via both WebSocket (real-time) and REST API (fallback)
+- Dataclass fields with Optional types need proper defaults to avoid mypy errors
+
+## 2026-06-01 20:30 - US-010
+- Implemented audio auto-split for compilations
+- Created audio_splitter.py module with AudioSplitter class
+- Added chapter-based splitting using ffprobe chapter metadata extraction
+- Added silence detection splitting using ffmpeg silencedetect filter
+- Integrated splitting into download manager with real-time progress updates
+- Added SPLITTING status to DownloadStatus enum
+- Updated download bar UI to show splitting status indicator
+- Added CSS styles for splitting status display
+- Updated audio.py router with actual split functionality
+- Implemented file discovery for split results
+- Typecheck passes (mypy with --ignore-missing-imports)
+
+**Files created:**
+- `app/audio_splitter.py` - New module for audio splitting with chapter info and silence detection
+
+**Files changed:**
+- `app/download_manager.py` - Added SPLITTING status, integrated audio_splitter, added _split_audio method
+- `app/routers/audio.py` - Updated split endpoint with actual functionality, fixed file discovery
+- `app/templates/components/download_bar.html` - Added splitting status UI indicator
+- `app/static/css/style.css` - Added styles for splitting status display
+
+**Learnings for future iterations:**
+- ffmpeg silencedetect filter outputs silence_end times to stderr
+- Chapter metadata extraction requires ffprobe with -show_chapters flag
+- Split files should be named with track number and chapter title for clarity
+- Use libmp3lame codec with VBR quality 2 for good balance of size and quality
+- Need to handle file discovery when original filename is not predictable
+- SQLAlchemy Column types need explicit casting to str for mypy compatibility
+- Splitting status should be tracked separately from conversion status
+---
+
+## 2026-06-01 19:30 - US-011
+- Implemented lightweight audio player
+- Created audio player component template with play/pause toggle, progress bar, and time display
+- Added audio streaming endpoint (/api/audio/stream) for file playback
+- Added audio player endpoint (/api/audio/player) to load player component via HTMX
+- Added click handler for audio files that opens player in right panel
+- Added CSS styles for audio player with dark theme consistency
+- Implemented progress bar with scrub/drag to seek functionality
+- Added current time and total duration display
+- Player stays open while browsing other files
+- Typecheck passes (mypy with --ignore-missing-imports)
+- Tested with sample audio file
+
+**Files created:**
+- `app/templates/components/audio_player.html` - Audio player component template
+
+**Files changed:**
+- `app/routers/audio.py` - Added streaming endpoint, player endpoint, and fixed TemplateResponse usage
+- `app/templates/base.html` - Added playAudioFile() function and player content ID
+- `app/templates/components/file_list.html` - Added click handlers for audio files
+- `app/static/css/style.css` - Added audio player styles and audio file row styling
+
+**Learnings for future iterations:**
+- FastAPI TemplateResponse requires `name=` parameter, not positional argument
+- Audio streaming can be done with StreamingResponse and file iteration
+- HTMX can load dynamic components into specific DOM elements
+- Progress bar scrubbing requires handling mousedown/mousemove/mouseup events
+- Audio element events (loadedmetadata, timeupdate, ended) are essential for player state
+- Player panel should expand automatically when audio file is clicked
+
+## 2026-06-01 21:00 - US-012
+- Implemented responsive design and final polish
+- Added CSS media queries for mobile (≤768px) and tablet (≤1024px) breakpoints
+- Added mobile menu toggle button for sidebar navigation
+- Added player toggle button for mobile access to audio player
+- Implemented touch-friendly improvements with larger touch targets
+- Added responsive layouts for download bar, video preview, audio player, and modals
+- Added accessibility features: focus styles, reduced motion support, high contrast mode
+- Dark theme consistency maintained across all components
+- Breadcrumb truncation on mobile for better usability
+- Context menu becomes bottom sheet on mobile devices
+- File table hides non-essential columns on mobile for better readability
+- Typecheck passes (mypy with --ignore-missing-imports)
+
+**Files changed:**
+- `app/static/css/style.css` - Added responsive media queries, mobile menu styles, touch-friendly improvements, accessibility features
+- `app/templates/base.html` - Added mobile menu toggle button, player toggle button, enhanced JavaScript for mobile navigation
+
+**Learnings for future iterations:**
+- Mobile-first approach requires careful consideration of touch targets and hover states
+- CSS custom properties (variables) make responsive design more maintainable
+- Bottom sheet pattern works well for context menus on mobile devices
+- Hidden columns on mobile improve readability without losing functionality
+- Accessibility features like reduced motion and high contrast mode are important for inclusive design
+- Panel toggling on mobile requires careful state management to avoid conflicts

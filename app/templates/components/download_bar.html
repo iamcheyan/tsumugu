@@ -1,0 +1,1221 @@
+<style>
+.url-history-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1050;
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--bs-body-bg);
+    border: 1px solid var(--bs-border-color);
+    border-top: none;
+    border-radius: 0 0 6px 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+.url-history-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--bs-border-color);
+    position: relative;
+    gap: 2px;
+}
+.url-history-item:hover { background: var(--bs-tertiary-bg); }
+.url-history-title {
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--bs-body-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: calc(100% - 70px);
+}
+.url-history-url {
+    font-size: 0.68rem;
+    color: var(--bs-secondary-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+.url-history-time {
+    font-size: 0.65rem;
+    color: var(--bs-secondary-color);
+    margin-left: auto;
+}
+.url-history-delete {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: none;
+    border: none;
+    color: var(--bs-secondary-color);
+    font-size: 0.7rem;
+    padding: 2px 4px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.url-history-item:hover .url-history-delete { opacity: 1; }
+.url-history-delete:hover { color: var(--bs-danger); }
+.url-history-empty {
+    padding: 10px;
+    text-align: center;
+    color: var(--bs-secondary-color);
+    font-size: 0.8rem;
+    font-style: italic;
+}
+</style>
+<div class="download-bar border-bottom bg-body-secondary">
+    <div class="download-bar-content p-2 px-3">
+        <!-- Row 1: URL Input + Parse Button -->
+        <form id="download-form" class="d-flex gap-2 align-items-center" onsubmit="return false;">
+            <div class="input-group input-group-sm flex-grow-1" style="max-width: calc(100% - 90px); position: relative;">
+                <span class="input-group-text py-1" style="font-size: 0.8rem;"><i class="bi bi-globe"></i></span>
+                <input type="url"
+                       id="youtube-url"
+                       name="url"
+                       class="form-control form-control-sm py-1"
+                       style="font-size: 0.8rem;"
+                       placeholder="YouTube / 任意下载地址（支持断点续传）"
+                       required
+                       autocomplete="off"
+                       onfocus="showUrlHistory()"
+                       oninput="filterUrlHistory()">
+                <div id="url-history-dropdown" class="url-history-dropdown" style="display: none;"></div>
+            </div>
+            <button type="button"
+                    id="parse-btn"
+                    class="btn btn-primary"
+                    style="font-size: 0.8rem; height: 31px; min-width: 70px;"
+                    onclick="parseYouTubeUrl()">
+                <i class="bi bi-search me-1"></i>Parse
+            </button>
+            <button type="button"
+                    id="toggle-queue-btn"
+                    class="btn btn-outline-secondary"
+                    style="font-size: 0.8rem; height: 31px;"
+                    onclick="toggleDownloadPanel()"
+                    title="Toggle download queue">
+                <i class="bi bi-list-task"></i>
+            </button>
+        </form>
+
+        <!-- Row 2: Save Path + NAS Status -->
+        <div class="d-flex gap-2 align-items-center mt-1">
+            <div class="input-group input-group-sm flex-grow-1" style="max-width: calc(100% - 160px);">
+                <span class="input-group-text py-1" style="font-size: 0.8rem;"><i class="bi bi-folder"></i></span>
+                <input type="text"
+                       id="save-path-input"
+                       class="form-control form-control-sm py-1"
+                       style="font-size: 0.8rem;"
+                       placeholder="Save to"
+                       list="path-history">
+                <datalist id="path-history"></datalist>
+                <input type="hidden" id="save-location" name="save_path" value="/Music">
+            </div>
+            <span class="text-muted d-flex align-items-center gap-1" id="nas-status-label" style="font-size: 0.75rem; white-space: nowrap;"></span>
+        </div>
+
+        <!-- Parse Status Log -->
+        <div id="parse-log" class="mt-1 p-2 rounded" style="display: none; max-height: 100px; overflow-y: auto; font-size: 0.75rem; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color);">
+            <div id="parse-log-content" style="font-family: monospace;"></div>
+        </div>
+
+        <!-- Video Preview Card (shown after parsing) -->
+        <div id="video-preview" class="video-preview mt-2" style="display: none; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 8px; padding: 12px;">
+            <div class="d-flex gap-3 align-items-center flex-wrap">
+                <!-- Thumbnail -->
+                <div class="position-relative" style="width: 160px; height: 90px; border-radius: 6px; overflow: hidden; flex-shrink: 0; background: #000;">
+                    <img id="preview-thumbnail" src="" alt="" class="w-100 h-100" style="object-fit: cover;">
+                    <span class="position-absolute bottom-0 end-0 m-1 px-1 rounded" style="font-size: 0.7rem; background: rgba(0,0,0,0.7); color: #fff;" id="preview-duration"></span>
+                </div>
+                <!-- Info -->
+                <div class="flex-grow-1" style="min-width: 150px; font-size: 0.8rem;">
+                    <div id="preview-title" class="fw-semibold mb-1 text-truncate" style="font-size: 0.85rem;"></div>
+                    <div class="text-muted mb-0"><span id="preview-uploader"></span></div>
+                    <div class="text-muted"><span id="preview-views"></span></div>
+                </div>
+                <!-- Options -->
+                <div class="d-flex flex-column gap-1" style="flex-shrink: 0; font-size: 0.8rem;">
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="text-muted mb-0" style="font-size: 0.75rem;">Format</label>
+                        <select id="audio-format" name="format" class="form-select form-select-sm py-0" style="width: 80px; font-size: 0.8rem;">
+                            <option value="mp3">MP3</option>
+                            <option value="m4a">M4A</option>
+                            <option value="flac">FLAC</option>
+                        </select>
+                    </div>
+                    <div class="form-check form-switch mb-0">
+                        <input type="checkbox" id="auto-split" name="auto_split" class="form-check-input" onchange="toggleSplitOptions()">
+                        <label for="auto-split" class="form-check-label" style="font-size: 0.75rem;">Auto-split</label>
+                    </div>
+                    <!-- Split Options -->
+                    <div class="d-flex gap-2 align-items-center" id="split-options" style="display: none;">
+                        <select id="split-mode" name="split_mode" class="form-select form-select-sm py-0" style="width: 120px; font-size: 0.75rem;">
+                            <option value="chapter_info">By Chapter</option>
+                            <option value="silence_detection">By Silence</option>
+                        </select>
+                        <div class="form-check form-check-sm mb-0">
+                            <input type="checkbox" id="keep-original" name="keep_original" class="form-check-input">
+                            <label for="keep-original" class="form-check-label" style="font-size: 0.75rem;">Keep</label>
+                        </div>
+                    </div>
+                </div>
+                <!-- Actions -->
+                <div class="d-flex flex-column gap-1" style="flex-shrink: 0;">
+                    <button type="button" class="btn btn-primary btn-sm py-1 px-3" style="font-size: 0.8rem;" onclick="confirmDownload()">
+                        <i class="bi bi-download me-1"></i>Download
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-1 px-3" style="font-size: 0.8rem;" onclick="cancelPreview()">
+                        <i class="bi bi-x-lg me-1"></i>Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hidden Save Path (synced from visible input in confirmDownload) -->
+        <input type="hidden" id="save-location" name="save_path" value="/Music">
+
+        <!-- Error Message -->
+        <div id="video-error" class="alert alert-danger mt-2 mb-0 py-2" style="display: none !important;">
+            <div class="d-flex justify-content-between align-items-center">
+                <span id="error-message"></span>
+                <button type="button" class="btn-close" onclick="hideError()"></button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    // ==================== Sidebar Notifications ====================
+    function showSidebarNotification(message, type = 'error') {
+        const container = document.getElementById('queue-tasks');
+        if (!container) return;
+
+        const id = 'notify-' + Date.now();
+        let borderColor, icon;
+        switch (type) {
+            case 'error':   borderColor = '#ef4444'; icon = 'bi-exclamation-triangle-fill'; break;
+            case 'warning': borderColor = '#fbbf24'; icon = 'bi-exclamation-circle-fill'; break;
+            case 'success': borderColor = '#22c55e'; icon = 'bi-check-circle-fill'; break;
+            default:        borderColor = '#60a5fa'; icon = 'bi-info-circle-fill'; break;
+        }
+
+        const div = document.createElement('div');
+        div.id = id;
+        div.className = 'p-2 rounded';
+        div.style.cssText = 'background: var(--bs-body-bg); border-left: 3px solid ' + borderColor + '; border: 1px solid var(--bs-border-color); border-left: 3px solid ' + borderColor + ';';
+        div.innerHTML =
+            '<div class="d-flex justify-content-between align-items-start gap-2">' +
+                '<div class="d-flex align-items-start gap-2 flex-grow-1">' +
+                    '<i class="bi ' + icon + ' flex-shrink-0 mt-1" style="color:' + borderColor + '; font-size: 0.85rem;"></i>' +
+                    '<span style="font-size: 0.8rem; white-space: pre-line; word-break: break-word;">' + message + '</span>' +
+                '</div>' +
+                '<button class="btn btn-sm btn-close py-0 flex-shrink-0" onclick="this.closest(\'[id^=notify-]\').remove()" style="font-size: 0.6rem;"></button>' +
+            '</div>';
+        container.prepend(div);
+
+        // Auto-open the panel
+        showDownloadQueue();
+
+        return id;
+    }
+
+    // Override showToast to also show errors/warnings in sidebar
+    var _origShowToast = typeof showToast === 'function' ? showToast : null;
+    window.showToast = function(message, type, duration) {
+        if (_origShowToast) _origShowToast(message, type, duration);
+        if (type === 'error' || type === 'warning') {
+            showSidebarNotification(message, type);
+        }
+    };
+
+    // Log messages to parse log area
+    function addLog(message, type = 'info') {
+        const logContainer = document.getElementById('parse-log');
+        const logContent = document.getElementById('parse-log-content');
+
+        // Show log container
+        logContainer.style.display = 'block';
+
+        // Create timestamp
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString();
+
+        // Create log entry with color based on type
+        let color = '#adb5bd'; // default gray
+        let icon = 'ℹ️';
+        if (type === 'success') { color = '#4ade80'; icon = '✓'; }
+        else if (type === 'error') { color = '#f87171'; icon = '✗'; }
+        else if (type === 'warning') { color = '#fbbf24'; icon = '⚠'; }
+        else if (type === 'loading') { color = '#60a5fa'; icon = '⟳'; }
+
+        const logEntry = document.createElement('div');
+        logEntry.style.color = color;
+        logEntry.innerHTML = `<span style="color: #6b7280;">[${timeStr}]</span> ${icon} ${message}`;
+        logContent.appendChild(logEntry);
+
+        // Auto-scroll to bottom
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    // Clear parse log
+    function clearLog() {
+        const logContent = document.getElementById('parse-log-content');
+        logContent.innerHTML = '';
+    }
+
+    // ==================== History (localStorage) ====================
+    const URL_HISTORY_KEY = 'yt_download_url_history';
+    const PATH_HISTORY_KEY = 'yt_download_path_history';
+    const MAX_HISTORY = 20;
+
+    function getHistory(key) {
+        try {
+            let list = JSON.parse(localStorage.getItem(key)) || [];
+            // Migrate old format: strings -> {url, title, time}
+            if (key === URL_HISTORY_KEY && list.length && typeof list[0] === 'string') {
+                list = list.map(url => ({ url, title: url, time: 0 }));
+                localStorage.setItem(key, JSON.stringify(list));
+            }
+            return list;
+        } catch { return []; }
+    }
+
+    function saveUrlToHistory(url, title) {
+        if (!url || !url.trim()) return;
+        let list = getHistory(URL_HISTORY_KEY);
+        // Remove duplicate by url
+        list = list.filter(item => item.url !== url);
+        list.unshift({ url: url.trim(), title: title || url.trim(), time: Date.now() });
+        if (list.length > MAX_HISTORY) list = list.slice(0, MAX_HISTORY);
+        localStorage.setItem(URL_HISTORY_KEY, JSON.stringify(list));
+    }
+
+    function savePathHistory() {
+        const path = document.getElementById('save-path-input').value.trim();
+        if (path) {
+            let list = getHistory(PATH_HISTORY_KEY);
+            list = list.filter(item => item !== path);
+            list.unshift(path);
+            if (list.length > 10) list = list.slice(0, 10);
+            localStorage.setItem(PATH_HISTORY_KEY, JSON.stringify(list));
+        }
+    }
+
+    function showUrlHistory() {
+        const dropdown = document.getElementById('url-history-dropdown');
+        renderUrlHistoryList(getHistory(URL_HISTORY_KEY), dropdown);
+        dropdown.style.display = 'block';
+    }
+
+    function filterUrlHistory() {
+        const input = document.getElementById('youtube-url').value.trim().toLowerCase();
+        const dropdown = document.getElementById('url-history-dropdown');
+        const list = getHistory(URL_HISTORY_KEY);
+        const filtered = input ? list.filter(item =>
+            item.url.toLowerCase().includes(input) || item.title.toLowerCase().includes(input)
+        ) : list;
+        renderUrlHistoryList(filtered, dropdown);
+        dropdown.style.display = filtered.length > 0 ? 'block' : 'none';
+    }
+
+    function renderUrlHistoryList(list, dropdown) {
+        if (!list.length) {
+            dropdown.innerHTML = '<div class="url-history-empty">No history yet</div>';
+            return;
+        }
+        dropdown.innerHTML = list.map((item, i) => {
+            const timeStr = item.time ? new Date(item.time).toLocaleDateString() : '';
+            const shortTitle = item.title.length > 60 ? item.title.slice(0, 60) + '…' : item.title;
+            return '<div class="url-history-item" onclick="selectUrlHistory(' + i + ')" title="' + item.url.replace(/"/g, '&quot;') + '">'
+                + '<div class="url-history-title">' + shortTitle + '</div>'
+                + '<div class="url-history-url">' + item.url + '</div>'
+                + '<div class="url-history-time">' + timeStr + '</div>'
+                + '<button class="url-history-delete" onclick="event.stopPropagation(); deleteUrlHistory(' + i + ')" title="Delete"><i class="bi bi-x"></i></button>'
+                + '</div>';
+        }).join('');
+    }
+
+    function selectUrlHistory(index) {
+        const list = getHistory(URL_HISTORY_KEY);
+        if (list[index]) {
+            document.getElementById('youtube-url').value = list[index].url;
+            document.getElementById('url-history-dropdown').style.display = 'none';
+        }
+    }
+
+    function deleteUrlHistory(index) {
+        let list = getHistory(URL_HISTORY_KEY);
+        list.splice(index, 1);
+        localStorage.setItem(URL_HISTORY_KEY, JSON.stringify(list));
+        filterUrlHistory();
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(e) {
+        const dropdown = document.getElementById('url-history-dropdown');
+        const input = document.getElementById('youtube-url');
+        if (dropdown && !dropdown.contains(e.target) && e.target !== input) {
+            dropdown.style.display = 'none';
+        }
+    });
+
+    // ==================== NAS Status ====================
+    async function loadNasStatus() {
+        const label = document.getElementById('nas-status-label');
+        try {
+            const res = await fetch('/api/config/');
+            const configs = await res.json();
+            const cfg = {};
+            configs.forEach(c => cfg[c.key] = c.value);
+
+            const addr = cfg.nas_address || '';
+            const share = cfg.nas_share || '';
+            const mountRoot = cfg.nas_root || '/tmp/nas_downloads';
+
+            // Set save path: use saved value, fall back to NAS root
+            const savePathInput = document.getElementById('save-path-input');
+            const savedSavePath = cfg.save_path;
+            const initPath = savedSavePath || '/Music';
+            if (savePathInput) {
+                savePathInput.value = savedSavePath || mountRoot;
+                document.getElementById('save-location').value = savedSavePath || mountRoot;
+            }
+
+            // Sync file browser to saved path on page load
+            const pathInput = document.getElementById('current-path-input');
+            if (pathInput && initPath !== '/') {
+                pathInput.value = initPath;
+                // Load file list with saved path
+                const searchInput = document.getElementById('search-input');
+                const sortSelect = document.getElementById('sort-select');
+                const orderInput = document.getElementById('sort-order-input');
+                const params = new URLSearchParams({
+                    path: initPath,
+                    search: searchInput ? searchInput.value : '',
+                    sort: sortSelect ? sortSelect.value : 'name',
+                    order: orderInput ? orderInput.value : 'asc'
+                });
+                htmx.ajax('GET', '/api/files/?' + params.toString(), '#file-list-content');
+                // Update breadcrumb
+                if (typeof updateBreadcrumb === 'function') updateBreadcrumb(initPath);
+                // Update parent button
+                const parentBtn = document.getElementById('parent-dir-btn');
+                if (parentBtn) parentBtn.style.display = initPath === '/' ? 'none' : '';
+                // Highlight tree node
+                currentSelectedPath = initPath;
+            }
+
+            if (addr) {
+                label.innerHTML = '<i class="bi bi-hdd-network"></i> ' + addr + (share ? '/' + share : '');
+                label.className = 'text-success';
+            } else {
+                label.innerHTML = '<i class="bi bi-hdd-network"></i> No NAS';
+                label.className = 'text-muted';
+            }
+        } catch {
+            label.innerHTML = '<i class="bi bi-hdd-network me-1"></i>NAS status unknown';
+            label.className = 'small text-muted';
+        }
+    }
+
+    // Parse URL - called when Parse button is clicked
+    function parseYouTubeUrl() {
+        const urlInput = document.getElementById('youtube-url');
+        const url = urlInput.value.trim();
+
+        // Clear previous logs and preview
+        clearLog();
+        hidePreview();
+        hideError();
+        hidePlaylistPreview();
+
+        if (!url) {
+            addLog('Please enter a URL', 'error');
+            return;
+        }
+
+        // Check if it's a direct file URL (not YouTube)
+        const isYouTube = /(?:youtube\.com|youtu\.be)/i.test(url);
+        if (!isYouTube) {
+            addLog('Detected direct file URL', 'info');
+            fetchDirectUrlInfo(url);
+            return;
+        }
+
+        addLog('Validating YouTube URL format...', 'loading');
+
+        // Validate YouTube URL format
+        const youtubePatterns = [
+            /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]+/,
+            /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]+&/,
+            /^(https?:\/\/)?(www\.)?youtube\.com\/embed\/[\w-]+/,
+            /^(https?:\/\/)?(www\.)?youtube\.com\/v\/[\w-]+/,
+            /^(https?:\/\/)?youtu\.be\/[\w-]+/,
+            /^(https?:\/\/)?(www\.)?youtube\.com\/shorts\/[\w-]+/,
+            /^(https?:\/\/)?(www\.)?youtube\.com\/playlist\?list=[\w-]+/
+        ];
+        const isValid = youtubePatterns.some(pattern => pattern.test(url));
+
+        if (!isValid) {
+            addLog('Invalid YouTube URL format', 'error');
+            addLog('Supported: youtube.com/watch, youtu.be, youtube.com/shorts, youtube.com/playlist', 'warning');
+            return;
+        }
+
+        addLog('URL format valid ✓', 'success');
+
+        // Check if it's a real playlist URL (exclude radio/mix RD-prefixed lists)
+        const listMatch = url.match(/[?&]list=([\w-]+)/);
+        const isPlaylist = listMatch && !listMatch[1].startsWith('RD');
+
+        // Show loading state on Parse button
+        const parseBtn = document.getElementById('parse-btn');
+        parseBtn.disabled = true;
+        parseBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Parsing...';
+
+        if (isPlaylist) {
+            addLog('Detected playlist URL, fetching playlist info...', 'loading');
+            fetchPlaylistInfo(url).finally(() => {
+                parseBtn.disabled = false;
+                parseBtn.innerHTML = '<i class="bi bi-search me-1"></i>Parse';
+            });
+        } else {
+            // Fetch single video info
+            fetchVideoInfo(url).finally(() => {
+                parseBtn.disabled = false;
+                parseBtn.innerHTML = '<i class="bi bi-search me-1"></i>Parse';
+            });
+        }
+    }
+
+    async function fetchPlaylistInfo(url) {
+        addLog('Connecting to YouTube...', 'loading');
+
+        try {
+            addLog('Fetching playlist metadata...', 'loading');
+            const response = await fetch('/api/youtube/playlist-info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to fetch playlist info');
+            }
+
+            addLog('Playlist info received ✓', 'success');
+            const data = await response.json();
+
+            addLog(`Playlist: ${data.title}`, 'success');
+            addLog(`Channel: ${data.uploader}`, 'info');
+            addLog(`Total videos: ${data.entry_count}`, 'info');
+
+            showPlaylistPreview(data);
+
+        } catch (error) {
+            addLog(`Error: ${error.message}`, 'error');
+            showError(error.message);
+            addFailedTask(url, 'Playlist', error.message);
+        }
+    }
+
+    function showPlaylistPreview(data) {
+        const preview = document.getElementById('video-preview');
+        const thumbnail = document.getElementById('preview-thumbnail');
+        const title = document.getElementById('preview-title');
+        const uploader = document.getElementById('preview-uploader');
+        const views = document.getElementById('preview-views');
+
+        // Show first video thumbnail as playlist cover
+        if (data.entries && data.entries.length > 0 && data.entries[0].thumbnail) {
+            thumbnail.src = data.entries[0].thumbnail;
+        } else {
+            thumbnail.src = '';
+        }
+
+        title.innerHTML = '<i class="bi bi-collection-play me-1"></i>' + (data.title || 'Unknown Playlist');
+        uploader.textContent = data.uploader ? 'Channel: ' + data.uploader : '';
+        views.textContent = data.entry_count ? data.entry_count + ' videos' : '';
+
+        // Store playlist data
+        preview.dataset.playlistData = JSON.stringify(data);
+        preview.dataset.isPlaylist = 'true';
+        preview.style.display = 'block';
+
+        // Show playlist items list
+        showPlaylistItems(data.entries);
+    }
+
+    function showPlaylistItems(entries) {
+        // Create or get playlist items container
+        let container = document.getElementById('playlist-items');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'playlist-items';
+            container.className = 'mt-2';
+            container.style.cssText = 'max-height: 200px; overflow-y: auto; font-size: 0.8rem; border: 1px solid var(--bs-border-color); border-radius: 8px; padding: 8px;';
+            const preview = document.getElementById('video-preview');
+            preview.appendChild(container);
+        }
+
+        let html = '<div class="fw-semibold mb-2" style="font-size: 0.85rem;">Videos in playlist:</div>';
+        entries.forEach((entry, idx) => {
+            const duration = entry.duration ? formatDuration(entry.duration) : '--:--';
+            html += '<div class="d-flex align-items-center gap-2 mb-1 p-1 rounded" style="background: var(--bs-tertiary-bg);">';
+            html += '<span class="text-muted" style="min-width: 20px; text-align: right;">' + (idx + 1) + '</span>';
+            html += '<span class="text-truncate flex-grow-1">' + (entry.title || 'Unknown') + '</span>';
+            html += '<span class="text-muted" style="font-size: 0.75rem;">' + duration + '</span>';
+            html += '</div>';
+        });
+        container.innerHTML = html;
+    }
+
+    function formatDuration(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return mins + ':' + secs.toString().padStart(2, '0');
+    }
+
+    function hidePlaylistPreview() {
+        const container = document.getElementById('playlist-items');
+        if (container) container.remove();
+        const preview = document.getElementById('video-preview');
+        if (preview) {
+            preview.dataset.isPlaylist = '';
+            preview.dataset.playlistData = '';
+        }
+    }
+
+    async function fetchVideoInfo(url) {
+        addLog('Connecting to YouTube...', 'loading');
+
+        try {
+            addLog('Fetching video metadata...', 'loading');
+            const response = await fetch('/api/youtube/info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to fetch video info');
+            }
+
+            addLog('Metadata received successfully ✓', 'success');
+            const data = await response.json();
+
+            // Save to history with title
+            saveUrlToHistory(url, data.title);
+
+            addLog(`Title: ${data.title}`, 'success');
+            addLog(`Uploader: ${data.uploader}`, 'info');
+            if (data.duration) {
+                const minutes = Math.floor(data.duration / 60);
+                const seconds = data.duration % 60;
+                addLog(`Duration: ${minutes}:${seconds.toString().padStart(2, '0')}`, 'info');
+            }
+            if (data.view_count) {
+                addLog(`Views: ${data.view_count.toLocaleString()}`, 'info');
+            }
+
+            showPreview(data);
+
+        } catch (error) {
+            addLog(`Error: ${error.message}`, 'error');
+            showError(error.message);
+            addFailedTask(url, 'Video', error.message);
+        }
+    }
+
+    function showPreview(data) {
+        const preview = document.getElementById('video-preview');
+        const thumbnail = document.getElementById('preview-thumbnail');
+        const title = document.getElementById('preview-title');
+        const uploader = document.getElementById('preview-uploader');
+        const views = document.getElementById('preview-views');
+        const duration = document.getElementById('preview-duration');
+        thumbnail.src = data.thumbnail || '';
+        thumbnail.onerror = function() {
+            this.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="112" viewBox="0 0 200 112"><rect fill="%23404040" width="200" height="112"/><text fill="%23b0b0b0" font-family="sans-serif" font-size="14" x="50%" y="50%" text-anchor="middle" dy=".3em">No Thumbnail</text></svg>';
+        };
+        title.textContent = data.title || 'Unknown Title';
+        uploader.textContent = data.uploader ? 'By: ' + data.uploader : '';
+        views.textContent = data.view_count ? data.view_count.toLocaleString() + ' views' : '';
+        if (data.duration) {
+            const minutes = Math.floor(data.duration / 60);
+            const seconds = data.duration % 60;
+            duration.textContent = minutes + ':' + seconds.toString().padStart(2, '0');
+        } else {
+            duration.textContent = '';
+        }
+        preview.dataset.videoData = JSON.stringify(data);
+        preview.style.display = 'block';
+    }
+
+    function hidePreview() {
+        const preview = document.getElementById('video-preview');
+        preview.style.display = 'none';
+        preview.dataset.isDirect = '';
+        preview.dataset.directData = '';
+    }
+
+    function showError(message) {
+        const errorDiv = document.getElementById('video-error');
+        const errorMsg = document.getElementById('error-message');
+        errorMsg.textContent = message ? 'Error: ' + message : 'An unknown error occurred';
+        errorDiv.style.display = 'flex';
+    }
+    function hideError() { document.getElementById('video-error').style.display = 'none'; }
+
+    // ==================== Direct File Download ====================
+    async function fetchDirectUrlInfo(url) {
+        const parseBtn = document.getElementById('parse-btn');
+        parseBtn.disabled = true;
+        parseBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Checking...';
+
+        try {
+            addLog('Fetching file info...', 'loading');
+            const response = await fetch('/api/youtube/fetch-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to fetch file info');
+            }
+
+            const data = await response.json();
+            addLog('File: ' + data.filename, 'success');
+            if (data.size > 0) {
+                const sizeMB = (data.size / (1024 * 1024)).toFixed(1);
+                addLog('Size: ' + sizeMB + ' MB', 'info');
+            }
+            if (data.content_type) {
+                addLog('Type: ' + data.content_type, 'info');
+            }
+
+            // Show simplified preview for direct download
+            const preview = document.getElementById('video-preview');
+            const thumbnail = document.getElementById('preview-thumbnail');
+            const title = document.getElementById('preview-title');
+            const uploader = document.getElementById('preview-uploader');
+            const views = document.getElementById('preview-views');
+            const duration = document.getElementById('preview-duration');
+
+            thumbnail.src = '';
+            thumbnail.onerror = null;
+            title.textContent = data.filename;
+            uploader.textContent = data.size > 0 ? 'Size: ' + (data.size / (1024 * 1024)).toFixed(1) + ' MB' : '';
+            views.textContent = data.content_type || 'Direct file download';
+            duration.textContent = '';
+
+            // Store data for confirmDownload
+            preview.dataset.directData = JSON.stringify(data);
+            preview.dataset.isDirect = 'true';
+            preview.style.display = 'block';
+
+        } catch (error) {
+            addLog('Error: ' + error.message, 'error');
+            showError(error.message);
+            addFailedTask(url, 'Parse', error.message);
+        } finally {
+            parseBtn.disabled = false;
+            parseBtn.innerHTML = '<i class="bi bi-search me-1"></i>Parse';
+        }
+    }
+
+    async function startDirectDownload(downloadData) {
+        try {
+            addLog('Starting download...', 'loading');
+            const response = await fetch('/api/youtube/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(downloadData)
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to start download');
+            }
+            const result = await response.json();
+            console.log('Direct download started:', result);
+            showDownloadQueue();
+            addLog('Download added to queue ✓', 'success');
+        } catch (error) {
+            showError(error.message);
+            addFailedTask(document.getElementById('youtube-url').value, 'Download', error.message);
+        }
+    }
+
+    function confirmDownload() {
+        const preview = document.getElementById('video-preview');
+        const isDirect = preview.dataset.isDirect === 'true';
+        const isPlaylist = preview.dataset.isPlaylist === 'true';
+        const savePath = document.getElementById('save-path-input').value || '/Music';
+        document.getElementById('save-location').value = savePath;
+        savePathHistory();
+
+        if (isDirect) {
+            // Direct file download
+            const directData = JSON.parse(preview.dataset.directData || '{}');
+            startDirectDownload({
+                url: directData.url,
+                title: directData.filename || 'download',
+                save_path: savePath,
+                download_type: 'direct'
+            });
+        } else if (isPlaylist) {
+            const playlistData = JSON.parse(preview.dataset.playlistData || '{}');
+            startPlaylistDownload({
+                url: document.getElementById('youtube-url').value,
+                format: document.getElementById('audio-format').value,
+                split_mode: document.getElementById('auto-split').checked ? document.getElementById('split-mode').value : null,
+                keep_original: document.getElementById('keep-original').checked,
+                save_path: savePath,
+                title: playlistData.title || 'Unknown Playlist'
+            });
+        } else {
+            const videoData = JSON.parse(preview.dataset.videoData || '{}');
+            startDownload({
+                url: document.getElementById('youtube-url').value,
+                format: document.getElementById('audio-format').value,
+                split_mode: document.getElementById('auto-split').checked ? document.getElementById('split-mode').value : null,
+                keep_original: document.getElementById('keep-original').checked,
+                save_path: savePath,
+                title: videoData.title || 'Unknown Video'
+            });
+        }
+
+        hidePreview();
+        hidePlaylistPreview();
+        document.getElementById('youtube-url').value = '';
+    }
+
+    async function startPlaylistDownload(downloadData) {
+        try {
+            addLog('Starting playlist download...', 'loading');
+            const response = await fetch('/api/youtube/download-playlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(downloadData)
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to start playlist download');
+            }
+            const result = await response.json();
+            addLog('Added ' + result.download_ids.length + ' videos to download queue ✓', 'success');
+            showDownloadQueue();
+        } catch (error) {
+            addLog('Error: ' + error.message, 'error');
+            showError(error.message);
+            addFailedTask(document.getElementById('youtube-url').value, 'Playlist Download', error.message);
+        }
+    }
+
+    async function startDownload(downloadData) {
+        try {
+            const response = await fetch('/api/youtube/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(downloadData)
+            });
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to start download');
+            }
+            const result = await response.json();
+            console.log('Download started:', result);
+            showDownloadQueue();
+        } catch (error) {
+            showError(error.message);
+            addFailedTask(downloadData.url || '', downloadData.title || 'Download', error.message);
+        }
+    }
+
+    let ws = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+
+    function connectWebSocket() {
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(protocol + '//' + window.location.host + '/api/youtube/ws/progress');
+        ws.onopen = function() { reconnectAttempts = 0; };
+        ws.onmessage = function(event) { handleWebSocketMessage(JSON.parse(event.data)); };
+        ws.onclose = function() {
+            if (reconnectAttempts < maxReconnectAttempts) {
+                reconnectAttempts++;
+                setTimeout(connectWebSocket, 2000 * reconnectAttempts);
+            }
+        };
+        ws.onerror = function(error) { console.error('WebSocket error:', error); };
+    }
+
+    function handleWebSocketMessage(data) {
+        if (data.type === 'download_progress') updateTaskProgress(data);
+        else if (data.type === 'compress_progress') handleCompressProgress(data);
+        else if (data.type === 'queue_status') updateQueueStatus(data.queue_status);
+    }
+
+    // ==================== Folder Compression ====================
+    function addCompressTask(taskId, folderName) {
+        // Avoid duplicates
+        if (document.getElementById('compress-' + taskId)) return;
+
+        const div = document.createElement('div');
+        div.id = 'compress-' + taskId;
+        div.className = 'p-2 rounded';
+        div.style.cssText = 'background: var(--bs-body-bg); border: 1px solid var(--bs-border-color);';
+        div.innerHTML =
+            '<div class="d-flex justify-content-between align-items-center mb-1">' +
+                '<span class="task-title fw-medium text-truncate" style="max-width:240px; font-size: 0.8rem;">' +
+                    '<i class="bi bi-archive me-1 text-info"></i>' + (folderName || 'Folder') + '.zip' +
+                '</span>' +
+                '<button class="btn btn-sm btn-close py-0" onclick="cancelCompress(' + taskId + ')" style="font-size: 0.6rem;"></button>' +
+            '</div>' +
+            '<div class="d-flex align-items-center gap-2 mb-1">' +
+                '<div class="progress flex-grow-1" style="height: 4px;">' +
+                    '<div class="progress-bar-fill bg-info rounded" style="width: 0%"></div>' +
+                '</div>' +
+                '<span class="task-progress text-muted" style="font-size: 0.7rem;">0%</span>' +
+            '</div>' +
+            '<div class="d-flex gap-2" style="font-size: 0.7rem;">' +
+                '<span class="task-status status-compressing">Compressing...</span>' +
+            '</div>';
+        document.getElementById('queue-tasks').appendChild(div);
+    }
+
+    function handleCompressProgress(data) {
+        const taskId = data.task_id;
+        let el = document.getElementById('compress-' + taskId);
+        if (!el) {
+            addCompressTask(taskId, data.folder_name);
+            el = document.getElementById('compress-' + taskId);
+        }
+        if (!el) return;
+
+        const statusEl = el.querySelector('.task-status');
+        const progressEl = el.querySelector('.task-progress');
+        const progressBar = el.querySelector('.progress-bar-fill');
+
+        if (progressBar) progressBar.style.width = data.progress + '%';
+        if (progressEl) progressEl.textContent = Math.round(data.progress) + '%';
+
+        if (data.status === 'completed') {
+            if (statusEl) {
+                statusEl.textContent = 'Ready';
+                statusEl.className = 'task-status status-completed';
+            }
+            if (progressBar) progressBar.style.width = '100%';
+
+            // Replace close button with download button
+            const closeBtn = el.querySelector('.btn-close');
+            if (closeBtn) {
+                const dlBtn = document.createElement('button');
+                dlBtn.className = 'btn btn-sm btn-success py-0 px-2';
+                dlBtn.style.cssText = 'font-size: 0.7rem;';
+                dlBtn.innerHTML = '<i class="bi bi-download me-1"></i>Download';
+                dlBtn.onclick = function() { downloadCompressed(taskId); };
+                closeBtn.replaceWith(dlBtn);
+            }
+
+            // Show zip size
+            if (data.zip_size > 0 && progressEl) {
+                progressEl.textContent = formatSize(data.zip_size);
+            }
+
+            // Auto-remove after 60 seconds
+            setTimeout(function() { removeCompressTask(taskId); }, 60000);
+        } else if (data.status === 'failed') {
+            if (statusEl) {
+                statusEl.textContent = 'Failed: ' + (data.error || 'Unknown error');
+                statusEl.className = 'task-status status-failed';
+            }
+            if (progressBar) {
+                progressBar.style.width = '100%';
+                progressBar.className = 'progress-bar-fill bg-danger rounded';
+            }
+            // Mark for removal
+            el.style.borderLeft = '3px solid var(--bs-danger)';
+        } else if (data.status === 'cancelled') {
+            removeCompressTask(taskId);
+        }
+    }
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    }
+
+    function downloadCompressed(taskId) {
+        window.location.href = '/api/files/compress/' + taskId + '/download';
+        // Auto-remove after a delay
+        setTimeout(function() { removeCompressTask(taskId); }, 3000);
+    }
+
+    function cancelCompress(taskId) {
+        fetch('/api/files/compress/' + taskId, { method: 'DELETE' }).catch(() => {});
+        removeCompressTask(taskId);
+    }
+
+    function removeCompressTask(taskId) {
+        const el = document.getElementById('compress-' + taskId);
+        if (el) {
+            el.style.transition = 'opacity 0.2s, max-height 0.2s';
+            el.style.opacity = '0';
+            el.style.maxHeight = '0';
+            el.style.overflow = 'hidden';
+            el.style.padding = '0';
+            el.style.margin = '0';
+            setTimeout(function() { el.remove(); syncQueueVisibility(); }, 200);
+        }
+    }
+
+    function updateTaskProgress(data) {
+        const taskId = data.task_id;
+        let taskElement = document.getElementById('task-' + taskId);
+        if (!taskElement) {
+            taskElement = createTaskElement(taskId);
+            document.getElementById('queue-tasks').appendChild(taskElement);
+        }
+        const statusEl = taskElement.querySelector('.task-status');
+        const progressEl = taskElement.querySelector('.task-progress');
+        const progressBar = taskElement.querySelector('.progress-bar-fill');
+        const speedEl = taskElement.querySelector('.task-speed');
+        const etaEl = taskElement.querySelector('.task-eta');
+        const titleEl = taskElement.querySelector('.task-title');
+        if (titleEl) titleEl.textContent = data.title || 'Unknown';
+        if (statusEl) {
+            let statusText = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+            if (data.status === 'failed' && data.error) {
+                statusText += ': ' + data.error;
+                statusEl.title = data.error;
+            }
+            statusEl.textContent = statusText;
+            statusEl.className = 'task-status status-' + data.status;
+        }
+        if (progressBar) progressBar.style.width = data.progress + '%';
+        if (progressEl) progressEl.textContent = Math.round(data.progress) + '%';
+        if (speedEl) speedEl.textContent = data.speed || '';
+        if (etaEl) etaEl.textContent = data.eta ? 'ETA: ' + data.eta : '';
+        const splitInfo = taskElement.querySelector('.task-split-info');
+        if (splitInfo) {
+            if (data.status === 'splitting') {
+                splitInfo.style.display = 'block';
+                if (progressBar) progressBar.style.width = '100%';
+                if (progressEl) progressEl.textContent = '';
+            } else {
+                splitInfo.style.display = 'none';
+            }
+        }
+        updateQueueCount(data.queue_status);
+        // Show queue only for active downloads
+        if (data.status === 'downloading' || data.status === 'converting' || data.status === 'splitting' || data.status === 'pending') {
+            showDownloadQueue();
+        }
+        if (data.status === 'completed') {
+            refreshFileList();
+            // Mark as completed, change close button to remove
+            const closeBtn = taskElement.querySelector('.btn-close');
+            if (closeBtn) closeBtn.onclick = function() { removeTask(data.task_id); };
+            taskElement.style.opacity = '0.7';
+            // Auto-hide after delay
+            setTimeout(() => { removeTask(data.task_id); }, 3000);
+        } else if (data.status === 'failed') {
+            refreshFileList();
+            // Mark as failed, change close button to remove
+            const closeBtn = taskElement.querySelector('.btn-close');
+            if (closeBtn) closeBtn.onclick = function() { removeTask(data.task_id); };
+            taskElement.style.borderLeft = '3px solid var(--bs-danger)';
+        }
+    }
+
+    function removeTask(taskId) {
+        const el = document.getElementById('task-' + taskId);
+        if (el) {
+            el.style.transition = 'opacity 0.2s, max-height 0.2s';
+            el.style.opacity = '0';
+            el.style.maxHeight = '0';
+            el.style.overflow = 'hidden';
+            el.style.padding = '0';
+            el.style.margin = '0';
+            setTimeout(() => { el.remove(); syncQueueVisibility(); }, 200);
+        }
+    }
+
+    function clearCompletedTasks() {
+        document.querySelectorAll('#queue-tasks > div').forEach(el => {
+            const status = el.querySelector('.task-status');
+            if (status && (status.classList.contains('status-completed') || status.classList.contains('status-failed'))) {
+                el.style.transition = 'opacity 0.2s';
+                el.style.opacity = '0';
+                setTimeout(() => el.remove(), 200);
+            }
+        });
+        setTimeout(syncQueueVisibility, 250);
+    }
+
+    // Add a failed task (parse error, download error) to the queue with retry button
+    function addFailedTask(url, title, errorMsg) {
+        const taskId = 'err-' + Date.now();
+        const div = document.createElement('div');
+        div.id = 'task-' + taskId;
+        div.className = 'p-2 rounded';
+        div.style.cssText = 'background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-left: 3px solid var(--bs-danger);';
+        const shortTitle = (title || url || 'Unknown').length > 50 ? (title || url || 'Unknown').slice(0, 50) + '…' : (title || url || 'Unknown');
+        div.innerHTML =
+            '<div class="d-flex justify-content-between align-items-center mb-1">' +
+                '<span class="task-title fw-medium text-truncate" style="max-width:220px; font-size: 0.8rem;" title="' + (title || url || '').replace(/"/g, '&quot;') + '">' + shortTitle + '</span>' +
+                '<button class="btn btn-sm btn-close py-0" onclick="removeTask(\'' + taskId + '\')" style="font-size: 0.6rem;"></button>' +
+            '</div>' +
+            '<div class="d-flex align-items-center gap-2 mb-1">' +
+                '<span class="task-status status-failed" style="font-size: 0.7rem;" title="' + errorMsg.replace(/"/g, '&quot;') + '">Failed</span>' +
+            '</div>' +
+            '<div class="d-flex align-items-center gap-2" style="font-size: 0.7rem;">' +
+                '<button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="retryDownload(\'' + url.replace(/'/g, "\\'") + '\')" style="font-size: 0.7rem;">' +
+                    '<i class="bi bi-arrow-clockwise me-1"></i>Retry' +
+                '</button>' +
+                '<span class="text-muted text-truncate" style="max-width: 180px;">' + errorMsg.slice(0, 60) + '</span>' +
+            '</div>';
+        document.getElementById('queue-tasks').prepend(div);
+        showDownloadQueue();
+    }
+
+    function retryDownload(url) {
+        // Fill the URL input and re-parse
+        const input = document.getElementById('youtube-url');
+        if (input) {
+            input.value = url;
+            parseYouTubeUrl();
+        }
+    }
+
+    function createTaskElement(taskId) {
+        const div = document.createElement('div');
+        div.id = 'task-' + taskId;
+        div.className = 'p-2 rounded';
+        div.style.cssText = 'background: var(--bs-body-bg); border: 1px solid var(--bs-border-color);';
+        div.innerHTML = '<div class="d-flex justify-content-between align-items-center mb-1"><span class="task-title fw-medium text-truncate" style="max-width:260px; font-size: 0.8rem;">Loading...</span><button class="btn btn-sm btn-close py-0" onclick="cancelDownload(' + taskId + ')" style="font-size: 0.6rem;"></button></div><div class="d-flex align-items-center gap-2 mb-1"><div class="progress flex-grow-1" style="height: 4px;"><div class="progress-bar-fill bg-primary rounded" style="width: 0%"></div></div><span class="task-progress text-muted" style="font-size: 0.7rem;">0%</span></div><div class="d-flex gap-2" style="font-size: 0.7rem;"><span class="task-status status-pending">Pending</span><span class="task-speed text-muted"></span><span class="task-eta text-muted"></span></div><div class="task-split-info mt-1 text-center text-info fw-medium" style="display:none; font-size: 0.7rem;"><i class="bi bi-music-note-beamed me-1"></i>Splitting...</div>';
+        return div;
+    }
+
+    function updateQueueStatus(queueStatus) {
+        updateQueueCount(queueStatus);
+    }
+    function updateQueueCount(queueStatus) {
+        const el = document.getElementById('queue-count');
+        if (el) el.textContent = (queueStatus.downloading + queueStatus.converting) + '/' + queueStatus.total;
+    }
+    // Check DOM: show panel if any task elements exist, hide if none
+    let _queueManuallyOpened = false;
+    function syncQueueVisibility() {
+        const el = document.getElementById('download-queue');
+        const container = document.getElementById('queue-tasks');
+        if (!el || !container) return;
+        if (container.children.length > 0) {
+            el.classList.add('open');
+        } else if (!_queueManuallyOpened) {
+            el.classList.remove('open');
+        }
+    }
+    function showDownloadQueue() {
+        const el = document.getElementById('download-queue');
+        if (el) el.classList.add('open');
+    }
+    function hideDownloadQueue() {
+        syncQueueVisibility();
+    }
+    function toggleDownloadPanel() {
+        const el = document.getElementById('download-queue');
+        if (!el) return;
+        const willOpen = !el.classList.contains('open');
+        el.classList.toggle('open');
+        _queueManuallyOpened = willOpen;
+    }
+
+    function refreshFileList() {
+        if (typeof currentSelectedPath !== 'undefined') {
+            const params = new URLSearchParams({ path: currentSelectedPath, search: '', sort: 'name', order: 'asc' });
+            htmx.ajax('GET', '/api/files/?' + params.toString(), '#file-list-content');
+        }
+    }
+
+    async function cancelDownload(taskId) {
+        try {
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: 'cancel', task_id: taskId }));
+            const response = await fetch('/api/youtube/cancel/' + taskId, { method: 'POST' });
+            if (response.ok) { const el = document.getElementById('task-' + taskId); if (el) el.remove(); }
+        } catch (error) { console.error('Cancel download failed:', error); }
+    }
+
+    function cancelPreview() {
+        hidePreview();
+        hideError();
+        document.getElementById('youtube-url').value = '';
+        // Hide and clear parse log
+        document.getElementById('parse-log').style.display = 'none';
+        clearLog();
+    }
+
+    function toggleSplitOptions() {
+        document.getElementById('split-options').style.display = document.getElementById('auto-split').checked ? 'flex' : 'none';
+    }
+
+    function updateSaveLocation() {
+        const pathInput = document.getElementById('current-path-input');
+        const savePathInput = document.getElementById('save-path-input');
+        if (pathInput && savePathInput) {
+            savePathInput.value = pathInput.value;
+            // Persist to config
+            fetch('/api/config/save_path', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: pathInput.value })
+            }).catch(() => {});
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        connectWebSocket();
+        hideError();
+        // Load NAS status and set default path
+        loadNasStatus();
+
+        // Save path input: Enter navigates the file browser
+        const savePathInput = document.getElementById('save-path-input');
+        if (savePathInput) {
+            savePathInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const newPath = this.value.trim() || '/';
+                    // Update file browser
+                    if (typeof selectDirectory === 'function') {
+                        selectDirectory(newPath);
+                    }
+                    // Persist to config
+                    fetch('/api/config/save_path', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ value: newPath })
+                    }).catch(() => {});
+                    // Update hidden location field
+                    const saveLocation = document.getElementById('save-location');
+                    if (saveLocation) saveLocation.value = newPath;
+                }
+            });
+        }
+    });
+</script>

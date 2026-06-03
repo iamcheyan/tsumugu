@@ -1,0 +1,991 @@
+<div class="file-list">
+    <input type="hidden" name="path" value="{{ current_path }}" id="file-list-path">
+    <input type="hidden" name="search" value="{{ search if search else '' }}" id="file-list-search">
+    <input type="hidden" name="sort" value="{{ sort if sort else 'name' }}" id="file-list-sort">
+    <input type="hidden" name="order" value="{{ order if order else 'asc' }}" id="file-list-order">
+
+    <!-- File Operations Toolbar -->
+    <div class="d-flex align-items-center gap-2 p-2 mb-2 bg-body-tertiary rounded">
+        <button class="btn btn-sm btn-primary" onclick="showCreateFolderDialog()">
+            <i class="bi bi-folder-plus me-1"></i>New Folder
+        </button>
+        <button class="btn btn-sm btn-outline-secondary" id="paste-btn" onclick="pasteFile()" style="display: none;">
+            <i class="bi bi-clipboard me-1"></i>Paste
+        </button>
+        <button class="btn btn-sm btn-outline-warning" onclick="findDuplicates()" title="Find and remove duplicate files (by MD5)">
+            <i class="bi bi-files me-1"></i>Dedup
+        </button>
+        <button class="btn btn-sm btn-outline-info" id="ai-rename-btn" onclick="aiRenameFiles()" title="AI-powered rename to 'Song - Artist' format" style="display: none;">
+            <i class="bi bi-magic me-1"></i>AI Rename
+        </button>
+        <div class="flex-grow-1"></div>
+        <div id="selection-info" class="d-flex align-items-center gap-2 badge bg-info" style="display: none;">
+            <span id="selection-count">0</span> selected
+            <button class="btn btn-sm btn-outline-danger border-0 py-0" onclick="deleteSelected()"><i class="bi bi-trash"></i></button>
+        </div>
+    </div>
+
+    {% if files %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-dark">
+                <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" class="form-check-input" id="select-all" onchange="toggleSelectAll(this)">
+                    </th>
+                    <th>Name</th>
+                    <th class="text-end" style="width: 100px;">Size</th>
+                    <th class="text-end d-none d-md-table-cell" style="width: 160px;">Modified</th>
+                    <th class="d-none d-lg-table-cell" style="width: 80px;">Type</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for file in files %}
+                <tr class="file-row {% if file.type == 'folder' %}table-active{% endif %}"
+                    data-path="{{ file.path }}"
+                    data-type="{{ file.type }}"
+                    data-name="{{ file.name }}"
+                    data-index="{{ loop.index0 }}"
+                    draggable="true"
+                    ondragstart="handleDragStart(event)"
+                    ondragover="handleDragOver(event)"
+                    ondrop="handleDrop(event)"
+                    ondragend="handleDragEnd(event)"
+                    ondblclick="{% if file.type == 'folder' %}navigateToFolder('{{ file.path }}'){% elif file.type == 'audio' %}playTrack('{{ file.path }}', '{{ file.name }}'){% endif %}"
+                    onclick="handleRowClick(event, '{{ file.path }}', {{ loop.index0 }})"
+                    oncontextmenu="showContextMenu(event, '{{ file.path }}', '{{ file.type }}', '{{ file.name }}')"
+                    style="cursor: pointer;">
+                    <td>
+                        <input type="checkbox" class="form-check-input file-checkbox" data-path="{{ file.path }}" data-index="{{ loop.index0 }}" onchange="updateSelection()">
+                    </td>
+                    <td>
+                        <div class="d-flex align-items-center gap-2" title="{{ file.name }}">
+                            <span class="fs-5 flex-shrink-0">
+                                {% if file.type == 'folder' %}
+                                    <i class="bi bi-folder-fill text-warning"></i>
+                                {% elif file.type == 'audio' %}
+                                    <i class="bi bi-music-note-beamed text-info"></i>
+                                {% else %}
+                                    <i class="bi bi-file-earmark text-secondary"></i>
+                                {% endif %}
+                            </span>
+                            <span class="text-truncate">{{ file.name }}</span>
+                            {% if file.type == 'audio' %}
+                            <button class="file-play-btn flex-shrink-0" onclick="event.stopPropagation(); playTrack('{{ file.path }}', '{{ file.name }}')" title="Play">
+                                <i class="bi bi-play-circle-fill"></i>
+                            </button>
+                            {% endif %}
+                            <button class="file-download-btn flex-shrink-0" onclick="event.stopPropagation(); downloadFile('{{ file.path }}', '{{ file.type }}')" title="Download">
+                                <i class="bi bi-download"></i>
+                            </button>
+                        </div>
+                    </td>
+                    <td class="text-end text-muted small">
+                        {% if file.type == 'folder' %}-{% else %}{{ file.size | filesizeformat }}{% endif %}
+                    </td>
+                    <td class="text-end text-muted small d-none d-md-table-cell text-nowrap">{{ file.modified }}</td>
+                    <td class="d-none d-lg-table-cell">
+                        {% if file.type == 'folder' %}
+                            <span class="badge bg-secondary">Folder</span>
+                        {% elif file.type == 'audio' %}
+                            {% if file.tag == 'music' %}
+                                <span class="badge bg-primary"><i class="bi bi-music-note-beamed me-1"></i>Music</span>
+                            {% elif file.tag == 'podcast' %}
+                                <span class="badge bg-warning text-dark"><i class="bi bi-mic me-1"></i>Podcast</span>
+                            {% else %}
+                                <span class="badge bg-info">Audio</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="badge bg-secondary">File</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="text-center text-muted py-5">
+        <i class="bi bi-folder-x fs-1 mb-2 d-block"></i>
+        <p class="mb-0">This directory is empty</p>
+    </div>
+    {% endif %}
+
+    <!-- Context Menu -->
+    <div id="context-menu" class="dropdown-menu show" style="display: none; position: absolute; z-index: 2000;">
+        <button class="dropdown-item" onclick="downloadFileFromMenu()"><i class="bi bi-download me-2"></i>Download</button>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item" onclick="aiTagFromMenu()"><i class="bi bi-tag me-2"></i>AI Tag</button>
+        <button class="dropdown-item" onclick="aiRenameFromMenu()"><i class="bi bi-magic me-2"></i>AI Rename</button>
+        <button class="dropdown-item" onclick="renameFile()"><i class="bi bi-pencil me-2"></i>Rename</button>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item" onclick="cutFile()"><i class="bi bi-scissors me-2"></i>Cut</button>
+        <button class="dropdown-item" onclick="copyFile()"><i class="bi bi-clipboard me-2"></i>Copy</button>
+        <div class="dropdown-divider"></div>
+        <button class="dropdown-item text-danger" onclick="deleteFile()"><i class="bi bi-trash me-2"></i>Delete</button>
+    </div>
+
+    <!-- Create Folder Dialog -->
+    <div id="create-folder-dialog" class="modal" style="display: none;">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content" style="background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                <div class="modal-body p-4">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-folder-plus me-2 text-primary"></i>Create New Folder</h6>
+                    <input type="text" id="new-folder-name" placeholder="Folder name" class="form-control form-control-sm" autofocus
+                           onkeydown="if(event.key==='Enter') createFolder()">
+                </div>
+                <div class="modal-footer border-0 justify-content-end gap-2 pb-3 pt-0">
+                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="hideCreateFolderDialog()">Cancel</button>
+                    <button class="btn btn-primary btn-sm px-3" onclick="createFolder()">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rename Dialog -->
+    <div id="rename-dialog" class="modal" style="display: none;">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content" style="background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                <div class="modal-body p-4">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-pencil me-2 text-info"></i>Rename</h6>
+                    <input type="text" id="rename-input" placeholder="New name" class="form-control form-control-sm"
+                           onkeydown="if(event.key==='Enter') renameFileConfirm()">
+                </div>
+                <div class="modal-footer border-0 justify-content-end gap-2 pb-3 pt-0">
+                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="hideRenameDialog()">Cancel</button>
+                    <button class="btn btn-primary btn-sm px-3" onclick="renameFileConfirm()">Rename</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Dialog -->
+    <div id="delete-dialog" class="modal" style="display: none;">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content" style="background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                <div class="modal-body text-center p-4">
+                    <div class="fs-1 mb-2">🗑️</div>
+                    <h6 class="fw-semibold mb-2">Confirm Delete</h6>
+                    <p id="delete-message" class="text-muted small mb-0">Are you sure you want to delete this item?</p>
+                </div>
+                <div class="modal-footer border-0 justify-content-center gap-2 pb-3">
+                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="hideDeleteDialog()">Cancel</button>
+                    <button class="btn btn-danger btn-sm px-3" onclick="deleteFileConfirm()"><i class="bi bi-trash me-1"></i>Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Duplicate Files Dialog -->
+    <div id="dedup-dialog" class="modal" style="display: none;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content" style="background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                <div class="modal-body p-4">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-files me-2 text-warning"></i>Duplicate Files</h6>
+                    <div id="dedup-loading" class="text-center py-4">
+                        <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                        <span class="text-muted" style="font-size: 0.85rem;">Scanning files and computing MD5 hashes...</span>
+                    </div>
+                    <div id="dedup-results" style="display: none; max-height: 400px; overflow-y: auto;"></div>
+                </div>
+                <div class="modal-footer border-0 justify-content-between pb-3">
+                    <span id="dedup-summary" class="text-muted" style="font-size: 0.8rem;"></span>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-secondary btn-sm px-3" onclick="hideDedupDialog()">Close</button>
+                        <button id="dedup-delete-btn" class="btn btn-danger btn-sm px-3" onclick="deleteDuplicates()" disabled>
+                            <i class="bi bi-trash me-1"></i>Delete Duplicates
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation for Duplicates -->
+    <div id="dedup-confirm-dialog" class="modal" style="display: none;">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content" style="background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                <div class="modal-body text-center p-4">
+                    <div class="fs-1 mb-2">⚠️</div>
+                    <h6 class="fw-semibold mb-2">Delete Duplicates?</h6>
+                    <p id="dedup-confirm-message" class="text-muted small mb-0"></p>
+                </div>
+                <div class="modal-footer border-0 justify-content-center gap-2 pb-3">
+                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="hideDedupConfirmDialog()">Cancel</button>
+                    <button class="btn btn-danger btn-sm px-3" onclick="confirmDeleteDuplicates()">Delete</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Rename Dialog -->
+    <div id="ai-rename-dialog" class="modal" style="display: none;">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content" style="background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.4);">
+                <div class="modal-body p-4">
+                    <h6 class="fw-semibold mb-3"><i class="bi bi-magic me-2 text-info"></i>AI Smart Rename</h6>
+                    <div id="ai-rename-loading" class="text-center py-4">
+                        <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                        <span class="text-muted" style="font-size: 0.85rem;">AI is analyzing filenames...</span>
+                    </div>
+                    <div id="ai-rename-results" style="display: none; max-height: 400px; overflow-y: auto;"></div>
+                </div>
+                <div class="modal-footer border-0 justify-content-between pb-3">
+                    <span id="ai-rename-summary" class="text-muted" style="font-size: 0.8rem;"></span>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-secondary btn-sm px-3" onclick="hideAIRenameDialog()">Cancel</button>
+                        <button id="ai-rename-apply-btn" class="btn btn-primary btn-sm px-3" onclick="applyAIRename()" disabled>
+                            <i class="bi bi-check-lg me-1"></i>Apply Rename
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Use var (re-declarable) so htmx swaps don't throw "already declared"
+    var clipboard = null;
+    var contextMenuTarget = null;
+    var contextMenuTargetType = null;
+    var contextMenuTargetName = null;
+    var lastClickedIndex = -1; // For shift+click range select
+
+    function showContextMenu(event, path, type, name) {
+        event.preventDefault();
+        contextMenuTarget = path;
+        contextMenuTargetType = type;
+        contextMenuTargetName = name;
+        const menu = document.getElementById('context-menu');
+        menu.style.display = 'block';
+        menu.style.left = event.pageX + 'px';
+        menu.style.top = event.pageY + 'px';
+        document.addEventListener('click', hideContextMenu);
+    }
+
+    function hideContextMenu() {
+        document.getElementById('context-menu').style.display = 'none';
+        document.removeEventListener('click', hideContextMenu);
+    }
+
+    function downloadFile(path, type) {
+        if (type === 'folder') {
+            // Folder: compress in background, show progress in sidebar
+            startFolderCompress(path);
+        } else {
+            // File: direct download
+            const a = document.createElement('a');
+            a.href = '/api/files/download?path=' + encodeURIComponent(path);
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    }
+
+    async function startFolderCompress(path) {
+        const folderName = path.split('/').pop() || 'folder';
+        try {
+            const formData = new FormData();
+            formData.append('path', path);
+            const res = await fetch('/api/files/compress', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.task_id) {
+                // Show compress task in sidebar
+                if (typeof addCompressTask === 'function') {
+                    addCompressTask(data.task_id, data.folder_name);
+                }
+                showDownloadQueue();
+            }
+        } catch (e) {
+            if (typeof showToast === 'function') showToast('Failed to start compression: ' + e.message, 'error');
+        }
+    }
+
+    function downloadFileFromMenu() {
+        hideContextMenu();
+        if (contextMenuTarget) {
+            downloadFile(contextMenuTarget, contextMenuTargetType);
+        }
+    }
+
+    function aiTagFromMenu() {
+        hideContextMenu();
+        // Collect selected files, or just the right-clicked file
+        let checked = document.querySelectorAll('.file-checkbox:checked');
+        if (checked.length === 0 && contextMenuTarget) {
+            const row = document.querySelector('tr[data-path="' + CSS.escape(contextMenuTarget) + '"]');
+            if (row) {
+                const cb = row.querySelector('.file-checkbox');
+                if (cb) cb.checked = true;
+                checked = [cb];
+            }
+        }
+        aiTagFiles();
+    }
+
+    function aiTagFiles() {
+        const checked = document.querySelectorAll('.file-checkbox:checked');
+        if (!checked.length) {
+            showToast('Please select files to tag', 'warning');
+            return;
+        }
+
+        const files = Array.from(checked).map(cb => ({
+            name: cb.closest('tr').dataset.name,
+            path: cb.dataset.path,
+            type: cb.closest('tr').dataset.type
+        })).filter(f => f.type === 'audio' || f.type === 'video');
+
+        if (files.length === 0) {
+            showToast('No audio/video files selected', 'warning');
+            return;
+        }
+
+        showToast('Tagging ' + files.length + ' file(s)...', 'info');
+
+        fetch('/api/files/ai-tag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files: files })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast(data.message, 'success');
+                refreshFileList();
+            } else {
+                showToast(data.message || 'Tagging failed', 'error');
+            }
+        })
+        .catch(err => {
+            showToast('Error tagging files: ' + err.message, 'error');
+        });
+    }
+
+    function aiRenameFromMenu() {
+        hideContextMenu();
+        // If there are selected files, use them; otherwise use the right-clicked file
+        const checked = document.querySelectorAll('.file-checkbox:checked');
+        if (checked.length === 0 && contextMenuTarget) {
+            // Select the right-clicked file
+            const row = document.querySelector('tr[data-path="' + CSS.escape(contextMenuTarget) + '"]');
+            if (row) {
+                const cb = row.querySelector('.file-checkbox');
+                if (cb) cb.checked = true;
+            }
+        }
+        aiRenameFiles();
+    }
+
+    function showCreateFolderDialog() {
+        document.getElementById('create-folder-dialog').style.display = 'block';
+        document.getElementById('new-folder-name').focus();
+    }
+    function hideCreateFolderDialog() {
+        document.getElementById('create-folder-dialog').style.display = 'none';
+        document.getElementById('new-folder-name').value = '';
+    }
+
+    function createFolder() {
+        const name = document.getElementById('new-folder-name').value.trim();
+        if (!name) { showToast('Please enter a folder name', 'warning'); return; }
+        const currentPath = document.getElementById('current-path-input').value;
+        fetch('/api/files/create-folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'path=' + encodeURIComponent(currentPath) + '&folder_name=' + encodeURIComponent(name)
+        }).then(r => r.json()).then(data => {
+            if (data.success) { hideCreateFolderDialog(); refreshFileList(); }
+            else showToast(data.message || 'Operation failed', 'error');
+        }).catch(() => showToast('Error creating folder', 'error'));
+    }
+
+    function renameFile() {
+        hideContextMenu();
+        document.getElementById('rename-input').value = contextMenuTargetName;
+        document.getElementById('rename-dialog').style.display = 'block';
+        document.getElementById('rename-input').focus();
+    }
+    function hideRenameDialog() { document.getElementById('rename-dialog').style.display = 'none'; }
+
+    function renameFileConfirm() {
+        const newName = document.getElementById('rename-input').value.trim();
+        if (!newName) { showToast('Please enter a new name', 'warning'); return; }
+        fetch('/api/files/rename', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'path=' + encodeURIComponent(contextMenuTarget) + '&new_name=' + encodeURIComponent(newName)
+        }).then(r => r.json()).then(data => {
+            if (data.success) { hideRenameDialog(); refreshFileList(); }
+            else showToast(data.message || 'Operation failed', 'error');
+        }).catch(() => showToast('Error renaming file', 'error'));
+    }
+
+    function deleteFile() {
+        hideContextMenu();
+        document.getElementById('delete-message').textContent = "Are you sure you want to delete '" + contextMenuTargetName + "'?";
+        document.getElementById('delete-dialog').style.display = 'block';
+    }
+    function hideDeleteDialog() { document.getElementById('delete-dialog').style.display = 'none'; }
+
+    function deleteFileConfirm() {
+        fetch('/api/files/delete?path=' + encodeURIComponent(contextMenuTarget), { method: 'DELETE' })
+        .then(r => r.json()).then(data => {
+            if (data.success) { hideDeleteDialog(); refreshFileList(); }
+            else showToast(data.message || 'Operation failed', 'error');
+        }).catch(() => showToast('Error deleting file', 'error'));
+    }
+
+    function cutFile() { hideContextMenu(); clipboard = { action: 'cut', path: contextMenuTarget, name: contextMenuTargetName }; document.getElementById('paste-btn').style.display = ''; }
+    function copyFile() { hideContextMenu(); clipboard = { action: 'copy', path: contextMenuTarget, name: contextMenuTargetName }; document.getElementById('paste-btn').style.display = ''; }
+
+    function pasteFile() {
+        if (!clipboard) return;
+        const currentPath = document.getElementById('current-path-input').value;
+        fetch('/api/files/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'source_path=' + encodeURIComponent(clipboard.path) + '&destination_path=' + encodeURIComponent(currentPath)
+        }).then(r => r.json()).then(data => {
+            if (data.success) { clipboard = null; document.getElementById('paste-btn').style.display = 'none'; refreshFileList(); showToast('File moved successfully', 'success'); }
+            else showToast(data.message || 'Operation failed', 'error');
+        }).catch(() => showToast('Error pasting file', 'error'));
+    }
+
+    // ==================== Shift+Click Range Select ====================
+    function handleRowClick(event, path, index) {
+        // Don't interfere with checkbox clicks or audio play
+        if (event.target.type === 'checkbox' || event.target.closest('.form-check-input')) return;
+
+        const checkboxes = document.querySelectorAll('.file-checkbox');
+        const rows = document.querySelectorAll('.file-row');
+
+        if (event.shiftKey && lastClickedIndex >= 0) {
+            // Range select: select all rows between last clicked and current
+            const start = Math.min(lastClickedIndex, index);
+            const end = Math.max(lastClickedIndex, index);
+            // If Ctrl is NOT held, clear other selections first
+            if (!event.ctrlKey && !event.metaKey) {
+                checkboxes.forEach(cb => cb.checked = false);
+            }
+            for (let i = start; i <= end; i++) {
+                checkboxes[i].checked = true;
+            }
+            updateSelection();
+        } else if (event.ctrlKey || event.metaKey) {
+            // Ctrl+Click: toggle this row
+            const cb = checkboxes[index];
+            cb.checked = !cb.checked;
+            lastClickedIndex = index;
+            updateSelection();
+        } else {
+            // Normal click: clear all and select this one
+            checkboxes.forEach(cb => cb.checked = false);
+            checkboxes[index].checked = true;
+            lastClickedIndex = index;
+            updateSelection();
+        }
+    }
+
+    // ==================== Drag & Drop (multi-file + to sidebar) ====================
+    function handleDragStart(event) {
+        const row = event.target.closest('tr');
+        const path = row.dataset.path;
+
+        // If the dragged row is not selected, select only it
+        const checkboxes = document.querySelectorAll('.file-checkbox:checked');
+        let paths = [];
+        if (checkboxes.length > 0) {
+            // Check if the dragged row is among selected
+            const isDraggedSelected = Array.from(checkboxes).some(cb => cb.dataset.path === path);
+            if (isDraggedSelected) {
+                // Drag all selected
+                paths = Array.from(checkboxes).map(cb => cb.dataset.path);
+            } else {
+                // Drag only this one
+                paths = [path];
+            }
+        } else {
+            paths = [path];
+        }
+
+        event.dataTransfer.setData('application/x-file-paths', JSON.stringify(paths));
+        event.dataTransfer.setData('text/plain', paths[0]); // fallback
+        event.dataTransfer.effectAllowed = 'move';
+
+        // Visual feedback
+        row.style.opacity = '0.5';
+        if (paths.length > 1) {
+            // Also dim other selected rows
+            checkboxes.forEach(cb => {
+                const r = cb.closest('tr');
+                if (r && cb.dataset.path !== path) r.style.opacity = '0.5';
+            });
+        }
+    }
+
+    function handleDragEnd(event) {
+        // Reset opacity on all rows
+        document.querySelectorAll('.file-row').forEach(r => r.style.opacity = '');
+        // Remove all drop indicators
+        document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    }
+
+    function handleDragOver(event) {
+        event.preventDefault();
+        const row = event.target.closest('tr');
+        if (row && row.dataset.type === 'folder') {
+            row.classList.add('drag-over');
+            event.dataTransfer.dropEffect = 'move';
+        }
+    }
+
+    function handleDrop(event) {
+        event.preventDefault();
+        const row = event.target.closest('tr');
+        if (row && row.dataset.type === 'folder') {
+            row.classList.remove('drag-over');
+            const destPath = row.dataset.path;
+            let paths = [];
+            try {
+                paths = JSON.parse(event.dataTransfer.getData('application/x-file-paths'));
+            } catch {
+                paths = [event.dataTransfer.getData('text/plain')];
+            }
+            if (paths.length === 0) return;
+
+            // Move all files one by one
+            let completed = 0, errors = [];
+            paths.forEach(srcPath => {
+                if (srcPath === destPath) { completed++; return; }
+                fetch('/api/files/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'source_path=' + encodeURIComponent(srcPath) + '&destination_path=' + encodeURIComponent(destPath)
+                }).then(r => {
+                    if (!r.ok) {
+                        return r.json().catch(() => ({ detail: 'HTTP ' + r.status })).then(body => {
+                            errors.push(srcPath.split('/').pop() + ': ' + (body.detail || body.message || 'HTTP ' + r.status));
+                        });
+                    }
+                    return r.json().then(data => {
+                        if (!data.success) {
+                            errors.push(srcPath.split('/').pop() + ': ' + (data.message || 'Unknown error'));
+                        }
+                    });
+                }).catch(err => {
+                    errors.push(srcPath.split('/').pop() + ': ' + (err.message || 'Network error'));
+                }).finally(() => {
+                    completed++;
+                    if (completed === paths.length) {
+                        if (errors.length > 0) {
+                            showToast('Move failed:\n' + errors.join('\n'), 'error', 6000);
+                        } else {
+                            showToast('Files moved successfully', 'success');
+                        }
+                        refreshFileList();
+                    }
+                });
+            });
+        }
+        document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    }
+
+    // ==================== Sidebar drop support ====================
+    // Called from tree_node when files are dropped onto a sidebar folder
+    function moveFilesToFolder(paths, destPath) {
+        // Filter out self-move
+        paths = paths.filter(p => p !== destPath);
+        if (paths.length === 0) return;
+
+        let completed = 0, errors = [];
+        paths.forEach(srcPath => {
+            fetch('/api/files/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'source_path=' + encodeURIComponent(srcPath) + '&destination_path=' + encodeURIComponent(destPath)
+            }).then(r => {
+                if (!r.ok) {
+                    return r.json().catch(() => ({ detail: 'HTTP ' + r.status })).then(body => {
+                        errors.push(srcPath.split('/').pop() + ': ' + (body.detail || body.message || 'HTTP ' + r.status));
+                    });
+                }
+                return r.json().then(data => {
+                    if (!data.success) {
+                        errors.push(srcPath.split('/').pop() + ': ' + (data.message || 'Unknown error'));
+                    }
+                });
+            }).catch(err => {
+                errors.push(srcPath.split('/').pop() + ': ' + (err.message || 'Network error'));
+            }).finally(() => {
+                completed++;
+                if (completed === paths.length) {
+                    if (errors.length > 0) {
+                        showToast('Move failed:\n' + errors.join('\n'), 'error', 6000);
+                    } else {
+                        showToast('Files moved successfully', 'success');
+                    }
+                    refreshFileList();
+                }
+            });
+        });
+    }
+
+    // ==================== Selection ====================
+    function toggleSelectAll(checkbox) {
+        document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = checkbox.checked);
+        updateSelection();
+    }
+    function updateSelection() {
+        const count = document.querySelectorAll('.file-checkbox:checked').length;
+        const info = document.getElementById('selection-info');
+        const aiRenameBtn = document.getElementById('ai-rename-btn');
+        if (count > 0) {
+            info.style.display = '';
+            document.getElementById('selection-count').textContent = count;
+            // Show AI rename button when files are selected
+            if (aiRenameBtn) aiRenameBtn.style.display = '';
+        } else {
+            info.style.display = 'none';
+            if (aiRenameBtn) aiRenameBtn.style.display = 'none';
+        }
+    }
+    function deleteSelected() {
+        const checked = document.querySelectorAll('.file-checkbox:checked');
+        if (!checked.length) return;
+        const names = Array.from(checked).map(cb => cb.dataset.path);
+        document.getElementById('delete-message').textContent = "Delete " + names.length + " selected item(s)?";
+        document.getElementById('delete-dialog').style.display = 'block';
+        // Override confirm to delete all
+        window._deleteSelectedPaths = names;
+    }
+
+    // Override deleteFileConfirm to handle multi-delete
+    var _origDeleteConfirm = deleteFileConfirm;
+    deleteFileConfirm = function() {
+        if (window._deleteSelectedPaths && window._deleteSelectedPaths.length > 0) {
+            const paths = window._deleteSelectedPaths;
+            window._deleteSelectedPaths = null;
+            let completed = 0;
+            paths.forEach(p => {
+                fetch('/api/files/delete?path=' + encodeURIComponent(p), { method: 'DELETE' })
+                .then(r => r.json()).then(data => { completed++; if (completed === paths.length) { hideDeleteDialog(); refreshFileList(); } });
+            });
+        } else {
+            _origDeleteConfirm();
+        }
+    };
+
+    // ==================== Duplicate File Detection ====================
+    var duplicateGroups = [];
+    var selectedForDeletion = new Set();
+
+    function findDuplicates() {
+        const currentPath = document.getElementById('current-path-input').value;
+        document.getElementById('dedup-dialog').style.display = 'block';
+        document.getElementById('dedup-loading').style.display = 'block';
+        document.getElementById('dedup-results').style.display = 'none';
+        document.getElementById('dedup-delete-btn').disabled = true;
+        document.getElementById('dedup-summary').textContent = '';
+        duplicateGroups = [];
+        selectedForDeletion.clear();
+
+        fetch('/api/files/find-duplicates?path=' + encodeURIComponent(currentPath))
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('dedup-loading').style.display = 'none';
+            if (data.success) {
+                duplicateGroups = data.duplicates || [];
+                renderDuplicateResults();
+            } else {
+                showToast(data.message || 'Error finding duplicates', 'error');
+                hideDedupDialog();
+            }
+        })
+        .catch(err => {
+            document.getElementById('dedup-loading').style.display = 'none';
+            showToast('Error scanning for duplicates', 'error');
+            hideDedupDialog();
+        });
+    }
+
+    function renderDuplicateResults() {
+        const container = document.getElementById('dedup-results');
+        const summary = document.getElementById('dedup-summary');
+        const deleteBtn = document.getElementById('dedup-delete-btn');
+
+        if (duplicateGroups.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-check-circle fs-1 mb-2 d-block text-success"></i><p class="mb-0">No duplicate files found</p></div>';
+            container.style.display = 'block';
+            summary.textContent = '';
+            return;
+        }
+
+        let totalDuplicates = 0;
+        let html = '';
+        duplicateGroups.forEach((group, groupIdx) => {
+            const md5 = group.md5;
+            const files = group.files;
+            const keepFile = files[0]; // Keep the first one (oldest or first found)
+            const duplicates = files.slice(1);
+            totalDuplicates += duplicates.length;
+
+            html += '<div class="mb-3 p-2 rounded" style="background: var(--bs-tertiary-bg);">';
+            html += '<div class="d-flex align-items-center gap-2 mb-2" style="font-size: 0.8rem;">';
+            html += '<span class="badge bg-secondary" style="font-size: 0.7rem;">MD5: ' + md5.substring(0, 12) + '...</span>';
+            html += '<span class="text-muted">' + files.length + ' files</span>';
+            html += '</div>';
+
+            // Keep file
+            html += '<div class="d-flex align-items-center gap-2 mb-1 p-1 rounded" style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);">';
+            html += '<i class="bi bi-check-circle-fill text-success" style="font-size: 0.9rem;"></i>';
+            html += '<span style="font-size: 0.8rem; flex: 1;" class="text-truncate">' + keepFile.name + '</span>';
+            html += '<span class="badge bg-success" style="font-size: 0.65rem;">Keep</span>';
+            html += '</div>';
+
+            // Duplicate files
+            duplicates.forEach(file => {
+                const fileId = 'dedup-' + groupIdx + '-' + file.name.replace(/[^a-zA-Z0-9]/g, '_');
+                html += '<div class="d-flex align-items-center gap-2 mb-1 p-1 rounded" style="background: rgba(239, 68, 68, 0.05);">';
+                html += '<input type="checkbox" class="form-check-input dedup-checkbox" id="' + fileId + '" data-path="' + file.path + '" data-md5="' + md5 + '" checked onchange="updateDedupSelection()">';
+                html += '<i class="bi bi-file-earmark-x text-danger" style="font-size: 0.9rem;"></i>';
+                html += '<span style="font-size: 0.8rem; flex: 1;" class="text-truncate">' + file.name + '</span>';
+                html += '<span class="badge bg-danger" style="font-size: 0.65rem;">Duplicate</span>';
+                html += '</div>';
+            });
+            html += '</div>';
+        });
+
+        container.innerHTML = html;
+        container.style.display = 'block';
+        summary.textContent = duplicateGroups.length + ' groups, ' + totalDuplicates + ' duplicate(s) selected for deletion';
+        deleteBtn.disabled = false;
+        updateDedupSelection();
+    }
+
+    function updateDedupSelection() {
+        selectedForDeletion.clear();
+        document.querySelectorAll('.dedup-checkbox:checked').forEach(cb => {
+            selectedForDeletion.add(cb.dataset.path);
+        });
+        const summary = document.getElementById('dedup-summary');
+        const deleteBtn = document.getElementById('dedup-delete-btn');
+        if (selectedForDeletion.size > 0) {
+            summary.textContent = selectedForDeletion.size + ' file(s) selected for deletion';
+            deleteBtn.disabled = false;
+        } else {
+            summary.textContent = 'No files selected';
+            deleteBtn.disabled = true;
+        }
+    }
+
+    function hideDedupDialog() {
+        document.getElementById('dedup-dialog').style.display = 'none';
+    }
+
+    function deleteDuplicates() {
+        if (selectedForDeletion.size === 0) return;
+        document.getElementById('dedup-confirm-message').textContent = 'Delete ' + selectedForDeletion.size + ' duplicate file(s)? This cannot be undone.';
+        document.getElementById('dedup-confirm-dialog').style.display = 'block';
+    }
+
+    function hideDedupConfirmDialog() {
+        document.getElementById('dedup-confirm-dialog').style.display = 'none';
+    }
+
+    function confirmDeleteDuplicates() {
+        const paths = Array.from(selectedForDeletion);
+        let completed = 0;
+        let errors = 0;
+
+        paths.forEach(path => {
+            fetch('/api/files/delete?path=' + encodeURIComponent(path), { method: 'DELETE' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) completed++; else errors++;
+                if (completed + errors === paths.length) {
+                    hideDedupConfirmDialog();
+                    if (errors > 0) showToast(errors + ' file(s) failed to delete', 'error');
+                    if (completed > 0) showToast(completed + ' duplicate(s) deleted', 'success');
+                    hideDedupDialog();
+                    refreshFileList();
+                }
+            })
+            .catch(() => {
+                errors++;
+                if (completed + errors === paths.length) {
+                    hideDedupConfirmDialog();
+                    showToast(errors + ' file(s) failed to delete', 'error');
+                    hideDedupDialog();
+                    refreshFileList();
+                }
+            });
+        });
+    }
+
+    // ==================== AI Rename ====================
+    var aiRenameSuggestions = [];
+
+    function aiRenameFiles() {
+        const checked = document.querySelectorAll('.file-checkbox:checked');
+        if (!checked.length) {
+            showToast('Please select files to rename', 'warning');
+            return;
+        }
+
+        const files = Array.from(checked).map(cb => ({
+            name: cb.closest('tr').dataset.name,
+            path: cb.dataset.path,
+            type: cb.closest('tr').dataset.type
+        }));
+
+        // Only rename audio and generic files
+        const audioFiles = files.filter(f => f.type === 'audio' || f.type === 'generic');
+        if (audioFiles.length === 0) {
+            showToast('No renameable files selected', 'warning');
+            return;
+        }
+
+        document.getElementById('ai-rename-dialog').style.display = 'block';
+        document.getElementById('ai-rename-loading').style.display = 'block';
+        document.getElementById('ai-rename-results').style.display = 'none';
+        document.getElementById('ai-rename-apply-btn').disabled = true;
+        document.getElementById('ai-rename-summary').textContent = '';
+        aiRenameSuggestions = [];
+
+        fetch('/api/files/ai-rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ files: audioFiles })
+        })
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('ai-rename-loading').style.display = 'none';
+            if (data.success) {
+                aiRenameSuggestions = data.suggestions || [];
+                renderAIRenameResults();
+            } else {
+                // Show error inside the dialog instead of closing it
+                const results = document.getElementById('ai-rename-results');
+                results.innerHTML = '<div class="text-center py-4"><i class="bi bi-exclamation-triangle fs-1 mb-2 d-block text-danger"></i><p class="mb-1 text-danger fw-medium">AI analysis failed</p><p class="text-muted" style="font-size:0.8rem;">' + (data.message || 'Unknown error') + '</p></div>';
+                results.style.display = 'block';
+                showToast(data.message || 'AI analysis failed', 'error');
+            }
+        })
+        .catch(err => {
+            document.getElementById('ai-rename-loading').style.display = 'none';
+            const results = document.getElementById('ai-rename-results');
+            results.innerHTML = '<div class="text-center py-4"><i class="bi bi-exclamation-triangle fs-1 mb-2 d-block text-danger"></i><p class="mb-1 text-danger fw-medium">Connection error</p><p class="text-muted" style="font-size:0.8rem;">' + (err.message || 'Cannot connect to AI service') + '</p></div>';
+            results.style.display = 'block';
+            showToast('Error connecting to AI service', 'error');
+        });
+    }
+
+    function renderAIRenameResults() {
+        const container = document.getElementById('ai-rename-results');
+        const summary = document.getElementById('ai-rename-summary');
+        const applyBtn = document.getElementById('ai-rename-apply-btn');
+
+        const renameable = aiRenameSuggestions.filter(s => s.confidence === 'high' && s.suggested_name !== s.original_name);
+        const skipped = aiRenameSuggestions.filter(s => s.confidence === 'skip' || s.suggested_name === s.original_name);
+
+        if (renameable.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-info-circle fs-1 mb-2 d-block"></i><p class="mb-0">AI could not confidently rename any files.<br>Only high-confidence renames are shown.</p></div>';
+            container.style.display = 'block';
+            summary.textContent = 'No files to rename';
+            return;
+        }
+
+        let html = '';
+        renameable.forEach((suggestion, idx) => {
+            html += '<div class="d-flex align-items-center gap-2 mb-2 p-2 rounded" style="background: var(--bs-tertiary-bg);">';
+            html += '<input type="checkbox" class="form-check-input ai-rename-checkbox" data-index="' + idx + '" checked>';
+            html += '<div class="flex-grow-1" style="font-size: 0.8rem;">';
+            html += '<div class="text-muted text-decoration-line-through">' + suggestion.original_name + '</div>';
+            html += '<div class="fw-semibold text-success">' + suggestion.suggested_name + '</div>';
+            if (suggestion.reason) {
+                html += '<div class="text-muted" style="font-size: 0.7rem;">' + suggestion.reason + '</div>';
+            }
+            html += '</div>';
+            html += '<span class="badge bg-success" style="font-size: 0.65rem;">Confident</span>';
+            html += '</div>';
+        });
+
+        if (skipped.length > 0) {
+            html += '<div class="mt-2 pt-2" style="border-top: 1px solid var(--bs-border-color);">';
+            html += '<div class="text-muted mb-2" style="font-size: 0.75rem;">Skipped (AI not confident):</div>';
+            skipped.forEach(s => {
+                html += '<div class="d-flex align-items-center gap-2 mb-1" style="font-size: 0.75rem;">';
+                html += '<i class="bi bi-dash-circle text-muted"></i>';
+                html += '<span class="text-muted">' + s.original_name + '</span>';
+                html += '</div>';
+            });
+            html += '</div>';
+        }
+
+        container.innerHTML = html;
+        container.style.display = 'block';
+        summary.textContent = renameable.length + ' file(s) will be renamed';
+        applyBtn.disabled = false;
+    }
+
+    function hideAIRenameDialog() {
+        document.getElementById('ai-rename-dialog').style.display = 'none';
+    }
+
+    function applyAIRename() {
+        const renameable = aiRenameSuggestions.filter(s => s.confidence === 'high' && s.suggested_name !== s.original_name);
+        const checkboxes = document.querySelectorAll('.ai-rename-checkbox:checked');
+
+        const renames = [];
+        checkboxes.forEach(cb => {
+            const idx = parseInt(cb.dataset.index);
+            if (renameable[idx]) {
+                renames.push({
+                    old_path: renameable[idx].original_path,
+                    new_name: renameable[idx].suggested_name
+                });
+            }
+        });
+
+        if (renames.length === 0) {
+            showToast('No files to rename', 'warning');
+            return;
+        }
+
+        fetch('/api/files/apply-rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ renames: renames })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast(data.message, 'success');
+                hideAIRenameDialog();
+                refreshFileList();
+            } else {
+                showToast(data.message || 'Rename failed', 'error');
+            }
+        })
+        .catch(err => {
+            showToast('Error applying rename', 'error');
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') { hideContextMenu(); hideCreateFolderDialog(); hideRenameDialog(); hideDeleteDialog(); if (typeof hideCleanNamesDialog === 'function') hideCleanNamesDialog(); if (typeof hideAIRenameDialog === 'function') hideAIRenameDialog(); }
+            // Ctrl+A to select all
+            if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
+                const target = event.target;
+                if (target.tagName === 'INPUT' && (target.type === 'text' || target.type === 'url')) return;
+                event.preventDefault();
+                document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = true);
+                updateSelection();
+            }
+        });
+    });
+</script>

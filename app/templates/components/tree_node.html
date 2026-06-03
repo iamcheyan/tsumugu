@@ -1,0 +1,24 @@
+<div class="tree-node">
+    <div class="tree-node-header {% if child.is_selected %}selected{% endif %}"
+         hx-get="/api/files/tree/children?path={{ child.path }}&selected={{ selected }}"
+         hx-target="#tree-children-{{ child.path | path_to_id }}"
+         hx-swap="innerHTML"
+         onclick="selectDirectory('{{ child.path }}', event)"
+         ondragover="handleTreeDragOver(event)"
+         ondragleave="handleTreeDragLeave(event)"
+         ondrop="handleTreeDrop(event, '{{ child.path }}')">
+        <span class="tree-toggle {% if child.expanded %}expanded{% endif %}"
+              onclick="event.stopPropagation(); toggleTreeNode('{{ child.path }}')">
+            {% if child.has_children %}
+                <span class="toggle-icon">{% if child.expanded %}▼{% else %}▶{% endif %}</span>
+            {% endif %}
+        </span>
+        <span class="tree-icon">📁</span>
+        <span class="tree-label">{{ child.name }}</span>
+    </div>
+    <div class="tree-children" id="tree-children-{{ child.path | path_to_id }}" style="display: {% if child.expanded %}block{% else %}none{% endif %}">
+        {% for grandchild in child.children %}
+            {% include "components/tree_node.html" with context %}
+        {% endfor %}
+    </div>
+</div>

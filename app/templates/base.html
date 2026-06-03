@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}NAS File Browser{% endblock %}</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script>
+        document.addEventListener('htmx:configRequest', function(event) {
+            if (event.detail.verb === 'put') {
+                event.detail.headers['Content-Type'] = 'application/json';
+            }
+            // Inject show_hidden into file listing/tree GET requests only
+            if (event.detail.verb === 'get' && event.detail.path && event.detail.path.startsWith('/api/files')) {
+                event.detail.parameters['show_hidden'] = getShowHidden();
+            }
+        });
+    </script>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Apply saved theme before render to prevent flash -->
+    <script>
+        (function() {
+            var t = localStorage.getItem('app-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+            document.documentElement.setAttribute('data-bs-theme', t === 'warm' || t === 'sakura' ? 'light' : 'dark');
+        })();
+    </script>
+</head>
+<body>
+    <!-- NAS Status Bar -->
+    <div id="nas-status-bar" class="nas-status-bar">
+        <span class="status-dot" id="nas-status-dot"></span>
+        <span id="nas-status-text" class="small">Checking NAS...</span>
+        <div class="flex-grow-1"></div>
+        <!-- Theme Switcher -->
+        <div class="theme-switcher" id="theme-switcher">
+            <button class="theme-switcher-btn" onclick="toggleThemeMenu()" title="Change theme">
+                <i class="bi bi-palette"></i>
+            </button>
+            <div class="theme-menu" id="theme-menu" style="display: none;">
+                <div class="theme-option" onclick="setTheme('dark')" data-theme-preview="dark">
+                    <span class="theme-dot" style="background: #1a1d21;"></span>
+                    <span>Dark</span>
+                </div>
+                <div class="theme-option" onclick="setTheme('light')" data-theme-preview="light">
+                    <span class="theme-dot" style="background: #f8f9fa; border: 1px solid #dee2e6;"></span>
+                    <span>Light</span>
+                </div>
+                <div class="theme-option" onclick="setTheme('midnight')" data-theme-preview="midnight">
+                    <span class="theme-dot" style="background: #0d1117;"></span>
+                    <span>Midnight</span>
+                </div>
+                <div class="theme-option" onclick="setTheme('nord')" data-theme-preview="nord">
+                    <span class="theme-dot" style="background: #2e3440;"></span>
+                    <span>Nord</span>
+                </div>
+                <div class="theme-option" onclick="setTheme('warm')" data-theme-preview="warm">
+                    <span class="theme-dot" style="background: #faf6f0; border: 1px solid #ddd5c8;"></span>
+                    <span>Warm</span>
+                </div>
+                <div class="theme-option" onclick="setTheme('sakura')" data-theme-preview="sakura">
+                    <span class="theme-dot" style="background: #fdf2f4; border: 1px solid #e8ccd2;"></span>
+                    <span>Sakura</span>
+                </div>
+                <div class="theme-option" onclick="setTheme('ocean')" data-theme-preview="ocean">
+                    <span class="theme-dot" style="background: #0a1929;"></span>
+                    <span>Ocean</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fixed Download Bar at Top -->
+    {% include 'components/download_bar.html' %}
+
+    <!-- Toast Notification & Confirm Dialog -->
+    {% include 'components/toast.html' %}
+
+    <div class="app-container">
+        <!-- Mobile Menu Toggle -->
+        <button class="mobile-menu-toggle btn btn-outline-secondary position-fixed top-0 start-0 m-2 d-lg-none z-3" onclick="toggleSidebar()" aria-label="Toggle menu">
+            <i class="bi bi-list fs-4"></i>
+        </button>
+
+        <!-- Left Sidebar - Directory Tree -->
+        <aside class="sidebar d-flex flex-column flex-shrink-0 border-end" id="directory-tree">
+            <div class="tree-content flex-grow-1 overflow-auto p-2" hx-get="/api/files/tree?path=/&selected=/" hx-trigger="load" hx-swap="innerHTML">
+                <div class="text-center text-muted py-4">
+                    <div class="spinner-border spinner-border-sm mb-2" role="status"></div>
+                    <p class="small mb-0">Loading directory tree...</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content - File List -->
+        <main class="main-content d-flex flex-column" id="file-list">
+            {% block content %}
+            <div class="main-header p-3 border-bottom bg-body-secondary">
+                <div class="breadcrumb mb-2">
+                    <span class="breadcrumb-item fw-medium">NAS Root</span>
+                </div>
+                <div class="header-actions d-flex gap-2 align-items-center">
+                    <input type="text" class="form-control form-control-sm" placeholder="Search files..." id="search-input">
+                    <select class="form-select form-select-sm" style="width: 150px;" id="sort-select">
+                        <option value="name">Sort by Name</option>
+                        <option value="size">Sort by Size</option>
+                        <option value="modified">Sort by Modified</option>
+                    </select>
+                </div>
+            </div>
+            <div class="file-list-content flex-grow-1 overflow-auto p-3">
+                <p class="text-center text-muted fst-italic py-5">Select a directory to view files</p>
+            </div>
+            {% endblock %}
+        </main>
+
+        <!-- Right Sidebar - Download Queue -->
+        <aside class="download-queue-panel d-flex flex-column flex-shrink-0 border-start" id="download-queue">
+            <div class="p-2 px-3 border-bottom d-flex justify-content-between align-items-center" style="font-size: 0.85rem;">
+                <span class="fw-semibold text-muted"><i class="bi bi-list-ol me-1"></i>Downloads</span>
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary py-0" onclick="clearCompletedTasks()" title="Clear completed" style="font-size: 0.7rem;">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                    <span id="queue-count" class="badge bg-primary" style="font-size: 0.7rem;">0/0</span>
+                </div>
+            </div>
+            <div id="queue-tasks" class="flex-grow-1 overflow-auto p-2 d-flex flex-column gap-1" style="font-size: 0.8rem;">
+            </div>
+        </aside>
+
+    </div>
+
+    <!-- Bottom Audio Player Bar -->
+    {% include 'components/player_bar.html' %}
+
+    <script>
+        // ==================== Theme Switcher ====================
+        const THEMES = ['dark', 'light', 'midnight', 'nord', 'warm', 'sakura', 'ocean'];
+        const LIGHT_THEMES = ['light', 'warm', 'sakura'];
+
+        function setTheme(name) {
+            if (!THEMES.includes(name)) return;
+            document.documentElement.setAttribute('data-theme', name);
+            document.documentElement.setAttribute('data-bs-theme', LIGHT_THEMES.includes(name) ? 'light' : 'dark');
+            localStorage.setItem('app-theme', name);
+            updateThemeMenuActive(name);
+            document.getElementById('theme-menu').style.display = 'none';
+        }
+
+        function toggleThemeMenu() {
+            const menu = document.getElementById('theme-menu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function updateThemeMenuActive(name) {
+            document.querySelectorAll('.theme-option').forEach(el => {
+                el.classList.toggle('active', el.getAttribute('data-theme-preview') === name);
+            });
+        }
+
+        // Close theme menu on outside click
+        document.addEventListener('click', function(e) {
+            const switcher = document.getElementById('theme-switcher');
+            if (switcher && !switcher.contains(e.target)) {
+                document.getElementById('theme-menu').style.display = 'none';
+            }
+        });
+
+        // Set initial active state
+        (function() {
+            var t = localStorage.getItem('app-theme') || 'dark';
+            updateThemeMenuActive(t);
+        })();
+
+        // Show hidden files preference (shared across pages)
+        function getShowHidden() {
+            const toggle = document.getElementById('show-hidden-toggle');
+            if (toggle) return toggle.checked;
+            return localStorage.getItem('showHiddenFiles') === '1';
+        }
+
+        // Mobile menu toggle
+        function toggleSidebar() {
+            const sidebar = document.getElementById('directory-tree');
+            if (sidebar) sidebar.classList.toggle('open');
+        }
+
+        // Close sidebar when clicking outside on mobile
+        document.addEventListener('click', function(event) {
+            if (window.innerWidth <= 992) {
+                const sidebar = document.getElementById('directory-tree');
+                const menuToggle = document.querySelector('.mobile-menu-toggle');
+                if (sidebar && menuToggle && sidebar.classList.contains('open') && !sidebar.contains(event.target) && !menuToggle.contains(event.target)) {
+                    sidebar.classList.remove('open');
+                }
+            }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', function() {
+            if (window.innerWidth > 992) {
+                const sidebar = document.getElementById('directory-tree');
+                if (sidebar) sidebar.classList.remove('open');
+            }
+        });
+
+        // Directory tree functions
+        let currentSelectedPath = '/';
+
+        // Encode a file path into a CSS-safe ID segment (no /, no special chars)
+        function pathToId(path) {
+            // Use encodeURIComponent then replace %2F with -- so IDs stay short & readable
+            return encodeURIComponent(path).replace(/%2F/g, '--');
+        }
+
+        function toggleTreeNode(path) {
+            const childrenContainer = document.getElementById('tree-children-' + pathToId(path));
+            const toggleIcon = document.querySelector('[onclick="toggleTreeNode(\'' + path + '\')"] .toggle-icon');
+            if (childrenContainer.style.display === 'none') {
+                childrenContainer.style.display = 'block';
+                if (toggleIcon) toggleIcon.textContent = '▼';
+            } else {
+                childrenContainer.style.display = 'none';
+                if (toggleIcon) toggleIcon.textContent = '▶';
+            }
+        }
+
+        // Tree drag-and-drop: accept files from file list
+        function handleTreeDragOver(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const header = event.currentTarget;
+            header.classList.add('drag-over');
+            event.dataTransfer.dropEffect = 'move';
+        }
+
+        function handleTreeDragLeave(event) {
+            event.currentTarget.classList.remove('drag-over');
+        }
+
+        function handleTreeDrop(event, destPath) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.classList.remove('drag-over');
+
+            let paths = [];
+            try {
+                paths = JSON.parse(event.dataTransfer.getData('application/x-file-paths'));
+            } catch {
+                const single = event.dataTransfer.getData('text/plain');
+                if (single) paths = [single];
+            }
+            if (paths.length === 0) return;
+
+            // Filter out self-move
+            paths = paths.filter(p => p !== destPath);
+            if (paths.length === 0) return;
+
+            // Move files one by one with detailed error reporting
+            let completed = 0, errors = [];
+            paths.forEach(srcPath => {
+                fetch('/api/files/move', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'source_path=' + encodeURIComponent(srcPath) + '&destination_path=' + encodeURIComponent(destPath)
+                }).then(r => {
+                    if (!r.ok) {
+                        return r.json().catch(() => ({ detail: 'HTTP ' + r.status })).then(body => {
+                            errors.push(srcPath.split('/').pop() + ': ' + (body.detail || body.message || 'HTTP ' + r.status));
+                        });
+                    }
+                    return r.json().then(data => {
+                        if (!data.success) {
+                            errors.push(srcPath.split('/').pop() + ': ' + (data.message || 'Unknown error'));
+                        }
+                    });
+                }).catch(err => {
+                    errors.push(srcPath.split('/').pop() + ': ' + (err.message || 'Network error'));
+                }).finally(() => {
+                    completed++;
+                    if (completed === paths.length) {
+                        if (errors.length > 0) {
+                            showToast('Move failed:\n' + errors.join('\n'), 'error', 6000);
+                        } else {
+                            showToast('Files moved successfully', 'success');
+                        }
+                        if (typeof refreshFileList === 'function') refreshFileList();
+                    }
+                });
+            });
+        }
+
+        function selectDirectory(path, event) {
+            document.querySelectorAll('.tree-node-header.selected').forEach(el => el.classList.remove('selected'));
+            if (event && event.currentTarget) event.currentTarget.classList.add('selected');
+            currentSelectedPath = path;
+            const pathInput = document.getElementById('current-path-input');
+            if (pathInput) pathInput.value = path;
+            const searchInput = document.getElementById('search-input');
+            const sortSelect = document.getElementById('sort-select');
+            const orderInput = document.getElementById('sort-order-input');
+            const search = searchInput ? searchInput.value : '';
+            const sort = sortSelect ? sortSelect.value : 'name';
+            const order = orderInput ? orderInput.value : 'asc';
+            const params = new URLSearchParams({ path, search, sort, order, show_hidden: typeof getShowHidden === 'function' ? getShowHidden() : false });
+            htmx.ajax('GET', '/api/files/?' + params.toString(), '#file-list-content');
+            updateBreadcrumb(path);
+            const parentBtn = document.getElementById('parent-dir-btn');
+            if (parentBtn) parentBtn.style.display = path === '/' ? 'none' : '';
+            if (typeof updateSaveLocation === 'function') updateSaveLocation();
+            if (window.innerWidth <= 992) {
+                const sidebar = document.getElementById('directory-tree');
+                if (sidebar) sidebar.classList.remove('open');
+            }
+        }
+
+        function navigateToFolder(path) {
+            selectDirectory(path);
+            const childrenContainer = document.getElementById('tree-children-' + pathToId(path));
+            if (childrenContainer && childrenContainer.style.display === 'none') toggleTreeNode(path);
+        }
+
+        function updateBreadcrumb(path) {
+            const breadcrumb = document.querySelector('.breadcrumb-item');
+            if (!breadcrumb) return;
+            if (path === '/') {
+                breadcrumb.textContent = 'NAS Root';
+            } else {
+                if (window.innerWidth <= 992) {
+                    const segments = path.split('/').filter(Boolean);
+                    breadcrumb.textContent = segments.length > 2 ? 'NAS Root / ... / ' + segments.slice(-2).join(' / ') : 'NAS Root' + path;
+                } else {
+                    breadcrumb.textContent = 'NAS Root' + path;
+                }
+            }
+        }
+    </script>
+
+    {% block scripts %}{% endblock %}
+
+    <!-- NAS Status Check -->
+    <script>
+        async function checkNasStatus() {
+            const dot = document.getElementById('nas-status-dot');
+            const text = document.getElementById('nas-status-text');
+            try {
+                const res = await fetch('/api/config/');
+                const configs = await res.json();
+                const cfg = {};
+                configs.forEach(c => cfg[c.key] = c.value);
+
+                const addr = cfg.nas_address || '';
+                const share = cfg.nas_share || '';
+                const user = cfg.nas_username || '';
+
+                if (!addr) {
+                    dot.className = 'status-dot red';
+                    text.textContent = 'NAS not configured — ';
+                    const link = document.createElement('a');
+                    link.href = '#';
+                    link.textContent = 'go to Settings';
+                    link.onclick = function(e) { e.preventDefault(); openSettings(); };
+                    text.appendChild(link);
+                    return;
+                }
+
+                // Try TCP connect
+                const port = cfg.nas_port || '445';
+                const testRes = await fetch('/api/config/test-connection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address: addr, protocol: cfg.nas_protocol || 'smb', port })
+                });
+                const test = await testRes.json();
+
+                if (test.success) {
+                    dot.className = 'status-dot green';
+                    text.textContent = addr + (share ? '/' + share : '') + (user ? ' (' + user + ')' : '') + ' — Connected';
+                } else {
+                    dot.className = 'status-dot red';
+                    text.textContent = addr + ' — ' + test.message;
+                }
+            } catch (e) {
+                dot.className = 'status-dot red';
+                text.textContent = 'NAS check failed';
+            }
+        }
+        document.addEventListener('DOMContentLoaded', checkNasStatus);
+    </script>
+
+    <!-- Settings Overlay -->
+    <div id="settings-overlay" class="settings-overlay" style="display: none;" onclick="if(event.target===this)closeSettings()">
+        <div class="settings-modal">
+            <!-- Header -->
+            <div class="settings-modal-header">
+                <h5 class="mb-0 fw-semibold"><i class="bi bi-gear me-2"></i>Settings</h5>
+                <button class="btn btn-sm btn-ghost" onclick="closeSettings()" title="Close (Esc)"><i class="bi bi-x-lg"></i></button>
+            </div>
+            <div class="settings-modal-body">
+                <!-- Left Sidebar Navigation -->
+                <nav class="settings-nav" id="settings-nav">
+                    <button class="settings-nav-item active" data-tab="general" onclick="switchSettingsTab('general', this)">
+                        <i class="bi bi-sliders"></i>
+                        <span>General</span>
+                    </button>
+                    <button class="settings-nav-item" data-tab="nas" onclick="switchSettingsTab('nas', this)">
+                        <i class="bi bi-hdd-network"></i>
+                        <span>NAS Connection</span>
+                    </button>
+                    <button class="settings-nav-item" data-tab="ai" onclick="switchSettingsTab('ai', this)">
+                        <i class="bi bi-robot"></i>
+                        <span>AI Model</span>
+                    </button>
+                    <button class="settings-nav-item" data-tab="dependencies" onclick="switchSettingsTab('dependencies', this)">
+                        <i class="bi bi-cpu"></i>
+                        <span>Dependencies</span>
+                    </button>
+                    <button class="settings-nav-item" data-tab="about" onclick="switchSettingsTab('about', this)">
+                        <i class="bi bi-info-circle"></i>
+                        <span>About</span>
+                    </button>
+                </nav>
+                <!-- Right Content Area -->
+                <div class="settings-content" id="settings-content">
+                    <div class="text-center py-5">
+                        <div class="spinner-border spinner-border-sm mb-2" role="status"></div>
+                        <p class="mb-0 text-muted">Loading settings...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function openSettings() {
+            const overlay = document.getElementById('settings-overlay');
+            overlay.style.display = 'flex';
+            // Reset to first tab
+            document.querySelectorAll('.settings-nav-item').forEach(el => el.classList.remove('active'));
+            document.querySelector('.settings-nav-item[data-tab="general"]').classList.add('active');
+            await loadSettingsTab('general');
+        }
+        function closeSettings() {
+            document.getElementById('settings-overlay').style.display = 'none';
+        }
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeSettings();
+        });
+
+        let _settingsData = null;
+
+        async function fetchSettingsData() {
+            if (_settingsData) return _settingsData;
+            try {
+                const cfgRes = await fetch('/api/config/');
+                const cfgList = await cfgRes.json();
+                const cfg = {};
+                cfgList.forEach(c => cfg[c.key] = c.value);
+                _settingsData = { cfg };
+                return _settingsData;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function loadSettingsTab(tab) {
+            const content = document.getElementById('settings-content');
+            content.innerHTML = '<div class="text-center py-5"><div class="spinner-border spinner-border-sm mb-2" role="status"></div><p class="mb-0 text-muted">Loading...</p></div>';
+
+            const data = await fetchSettingsData();
+            if (!data) { content.innerHTML = '<div class="p-4 text-danger">Failed to load settings</div>'; return; }
+            const cfg = data.cfg;
+
+            let html = '';
+            switch (tab) {
+                case 'general':
+                    html = buildGeneralTab(cfg);
+                    break;
+                case 'nas':
+                    html = buildNasTab(cfg);
+                    break;
+                case 'ai':
+                    html = buildAiTab(cfg);
+                    break;
+                case 'dependencies':
+                    html = buildDependenciesTab(cfg);
+                    break;
+                case 'about':
+                    html = buildAboutTab();
+                    break;
+            }
+            content.innerHTML = html;
+            // Execute tab-specific init scripts
+            if (tab === 'nas') initNasTab(cfg);
+            if (tab === 'ai') initAiTab(cfg);
+        }
+
+        function switchSettingsTab(tab, btn) {
+            document.querySelectorAll('.settings-nav-item').forEach(el => el.classList.remove('active'));
+            btn.classList.add('active');
+            loadSettingsTab(tab);
+        }
+
+        /* ===================== Tab Builders ===================== */
+        function buildGeneralTab(cfg) {
+            const strategy = cfg.deletion_strategy || 'recycle_bin';
+            return `
+            <div class="settings-section">
+                <h6 class="settings-section-title"><i class="bi bi-sliders me-2"></i>System Configuration</h6>
+                <div class="settings-group">
+                    <label class="settings-label">NAS Root Directory</label>
+                    <p class="settings-hint">Root directory for browsing files</p>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-folder"></i></span>
+                        <input type="text" id="cfg-nas-root" class="form-control" value="${escHtml(cfg.nas_root || '/nas')}">
+                        <button class="btn btn-primary" onclick="saveConfig('nas_root', document.getElementById('cfg-nas-root').value)">
+                            <i class="bi bi-check-lg"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <label class="settings-label">File Deletion Strategy</label>
+                    <p class="settings-hint">Choose how files are deleted</p>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-trash"></i></span>
+                        <select id="cfg-deletion" class="form-select">
+                            <option value="recycle_bin" ${strategy==='recycle_bin'?'selected':''}>Recycle Bin (Safe)</option>
+                            <option value="direct_delete" ${strategy==='direct_delete'?'selected':''}>Direct Delete (Permanent)</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="saveConfig('deletion_strategy', document.getElementById('cfg-deletion').value)">
+                            <i class="bi bi-check-lg"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <label class="settings-label">Default Download Path</label>
+                    <p class="settings-hint">Where downloaded files are saved</p>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-download"></i></span>
+                        <input type="text" id="cfg-save-path" class="form-control" value="${escHtml(cfg.save_path || '/Music')}">
+                        <button class="btn btn-primary" onclick="saveConfig('save_path', document.getElementById('cfg-save-path').value)">
+                            <i class="bi bi-check-lg"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function buildNasTab(cfg) {
+            const configured = cfg.nas_address && cfg.nas_share;
+            return `
+            <div class="settings-section">
+                <h6 class="settings-section-title">
+                    <i class="bi bi-hdd-network me-2"></i>NAS Connection
+                    ${configured ? '<span class="badge bg-success ms-auto"><i class="bi bi-check-circle me-1"></i>Configured</span>' : '<span class="badge bg-secondary ms-auto">Not configured</span>'}
+                </h6>
+                <div class="settings-group">
+                    <label class="settings-label">NAS Address</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-globe"></i></span>
+                        <input type="text" id="cfg-nas-addr" class="form-control" value="${escHtml(cfg.nas_address || '')}" placeholder="192.168.1.100 or nas.local">
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-group flex-grow-1">
+                        <label class="settings-label">Protocol</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text"><i class="bi bi-arrow-left-right"></i></span>
+                            <select id="cfg-nas-proto" class="form-select">
+                                <option value="smb" ${(cfg.nas_protocol||'smb')==='smb'?'selected':''}>SMB / CIFS</option>
+                                <option value="nfs" ${(cfg.nas_protocol||'')==='nfs'?'selected':''}>NFS</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="settings-group" style="width: 120px;">
+                        <label class="settings-label">Port</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text"><i class="bi bi-plug"></i></span>
+                            <input type="text" id="cfg-nas-port" class="form-control" value="${escHtml(cfg.nas_port || '445')}">
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-group">
+                    <label class="settings-label">Shared Folder</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-folder2-open"></i></span>
+                        <input type="text" id="cfg-nas-share" class="form-control" value="${escHtml(cfg.nas_share || '')}" placeholder="volume1/music">
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <div class="settings-group flex-grow-1">
+                        <label class="settings-label">Username</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text"><i class="bi bi-person"></i></span>
+                            <input type="text" id="cfg-nas-user" class="form-control" value="${escHtml(cfg.nas_username || '')}" placeholder="admin">
+                        </div>
+                    </div>
+                    <div class="settings-group flex-grow-1">
+                        <label class="settings-label">Password</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                            <input type="password" id="cfg-nas-pass" class="form-control" value="${escHtml(cfg.nas_password || '')}" placeholder="••••••••">
+                            <button class="btn btn-outline-secondary" type="button" onclick="toggleNasPassVis()"><i class="bi bi-eye" id="cfg-pass-icon"></i></button>
+                        </div>
+                    </div>
+                </div>
+                <div class="settings-actions">
+                    <button class="btn btn-primary btn-sm fw-semibold" onclick="saveNasConnection()">
+                        <i class="bi bi-check-lg me-1"></i>Save
+                    </button>
+                    <button class="btn btn-outline-info btn-sm" onclick="testNasConnection()">
+                        <i class="bi bi-wifi me-1"></i>Test Connection
+                    </button>
+                    <div id="nas-mount-btns"></div>
+                    <span id="nas-action-result" class="small ms-2"></span>
+                </div>
+                <div id="nas-test-result-area" class="mt-2"></div>
+            </div>`;
+        }
+
+        function buildAiTab(cfg) {
+            return `
+            <div class="settings-section">
+                <h6 class="settings-section-title"><i class="bi bi-robot me-2"></i>AI Model</h6>
+                <div class="settings-group">
+                    <label class="settings-label">Default Model</label>
+                    <p class="settings-hint">Used for AI rename and other smart features</p>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text"><i class="bi bi-cpu"></i></span>
+                        <select id="cfg-model-select" class="form-select" onchange="saveAiModel()">
+                            <option value="">Loading models...</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="cfg-model-details" class="settings-model-info" style="display:none;">
+                    <div class="d-flex gap-3 flex-wrap">
+                        <div><span class="text-muted">Provider:</span> <span id="cfg-m-provider" class="fw-medium"></span></div>
+                        <div><span class="text-muted">Context:</span> <span id="cfg-m-context" class="fw-medium"></span></div>
+                        <div><span class="text-muted">Output:</span> <span id="cfg-m-output" class="fw-medium"></span></div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function buildDependenciesTab(cfg) {
+            const ytOk = cfg.ytdlp_status === 'installed';
+            const ffOk = cfg.ffmpeg_status === 'installed';
+            return `
+            <div class="settings-section">
+                <h6 class="settings-section-title"><i class="bi bi-cpu me-2"></i>Dependencies</h6>
+                <div class="settings-dep-list">
+                    <div class="settings-dep-item">
+                        <span class="fw-medium">yt-dlp</span>
+                        ${ytOk ? '<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Installed</span>' : '<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Missing</span>'}
+                    </div>
+                    <div class="settings-dep-item">
+                        <span class="fw-medium">ffmpeg</span>
+                        ${ffOk ? '<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Installed</span>' : '<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Missing</span>'}
+                    </div>
+                </div>
+                ${(!ytOk || !ffOk) ?
+                    '<div class="alert alert-warning py-2 mb-0 mt-3"><i class="bi bi-exclamation-triangle me-1"></i>Some dependencies are missing. YouTube downloads and audio processing may not work properly.</div>' :
+                    '<div class="alert alert-success py-2 mb-0 mt-3"><i class="bi bi-check-circle me-1"></i>All dependencies are installed and ready.</div>'
+                }
+            </div>`;
+        }
+
+        function buildAboutTab() {
+            return `
+            <div class="settings-section">
+                <h6 class="settings-section-title"><i class="bi bi-info-circle me-2"></i>About</h6>
+                <div class="settings-about">
+                    <div class="settings-about-logo"><i class="bi bi-cloud-download"></i></div>
+                    <h5 class="fw-bold mb-1">NAS File Browser</h5>
+                    <p class="text-muted small mb-3">YouTube Audio Downloader &amp; NAS File Manager</p>
+                    <div class="settings-about-links">
+                        <div class="d-flex align-items-center gap-2 small mb-2">
+                            <i class="bi bi-box-arrow-up-right text-muted"></i>
+                            <span>Built with FastAPI + HTMX + Bootstrap 5</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2 small mb-2">
+                            <i class="bi bi-youtube text-danger"></i>
+                            <span>Powered by yt-dlp + ffmpeg</span>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        /* ===================== Helpers ===================== */
+        function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+        async function saveConfig(key, value) {
+            try {
+                await fetch('/api/config/' + key, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value })
+                });
+                _settingsData = null; // Invalidate cache
+                showToast('Saved', 'success');
+            } catch (e) { showToast('Save failed', 'error'); }
+        }
+
+        function toggleNasPassVis() {
+            const input = document.getElementById('cfg-nas-pass');
+            const icon = document.getElementById('cfg-pass-icon');
+            if (input.type === 'password') { input.type = 'text'; icon.className = 'bi bi-eye-slash'; }
+            else { input.type = 'password'; icon.className = 'bi bi-eye'; }
+        }
+
+        async function saveNasConnection() {
+            const resultEl = document.getElementById('nas-action-result');
+            const fields = {
+                nas_address: document.getElementById('cfg-nas-addr').value,
+                nas_protocol: document.getElementById('cfg-nas-proto').value,
+                nas_port: document.getElementById('cfg-nas-port').value,
+                nas_share: document.getElementById('cfg-nas-share').value,
+                nas_username: document.getElementById('cfg-nas-user').value,
+                nas_password: document.getElementById('cfg-nas-pass').value,
+            };
+            resultEl.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>Saving...</span>';
+            try {
+                await Promise.all(Object.entries(fields).map(([k, v]) =>
+                    fetch('/api/config/' + k, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({value: v}) }).then(r=>r.json())
+                ));
+                resultEl.innerHTML = '<span class="text-success"><i class="bi bi-check-circle me-1"></i>Saved</span>';
+                _settingsData = null;
+                setTimeout(() => resultEl.innerHTML = '', 2000);
+            } catch (e) { resultEl.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Failed</span>'; }
+        }
+
+        async function testNasConnection() {
+            const resultEl = document.getElementById('nas-action-result');
+            resultEl.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>Testing...</span>';
+            try {
+                const res = await fetch('/api/config/test-connection', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                        address: document.getElementById('cfg-nas-addr').value,
+                        protocol: document.getElementById('cfg-nas-proto').value,
+                        share: document.getElementById('cfg-nas-share').value,
+                        username: document.getElementById('cfg-nas-user').value,
+                        password: document.getElementById('cfg-nas-pass').value,
+                        port: document.getElementById('cfg-nas-port').value,
+                    })
+                });
+                const data = await res.json();
+                resultEl.innerHTML = data.success
+                    ? '<span class="text-success"><i class="bi bi-check-circle me-1"></i>' + data.message + '</span>'
+                    : '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>' + data.message + '</span>';
+            } catch (e) { resultEl.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>Test failed</span>'; }
+        }
+
+        function initNasTab(cfg) {
+            updateNasMountBtns();
+        }
+
+        async function updateNasMountBtns() {
+            const container = document.getElementById('nas-mount-btns');
+            if (!container) return;
+            try {
+                const res = await fetch('/api/config/mount-status');
+                const status = await res.json();
+                if (status.mounted) {
+                    container.innerHTML = '<button class="btn btn-outline-warning btn-sm ms-2" onclick="nasUnmount()"><i class="bi bi-eject me-1"></i>Unmount</button>' +
+                        '<button class="btn btn-outline-info btn-sm ms-1" onclick="nasRemount()"><i class="bi bi-arrow-clockwise me-1"></i>Remount</button>';
+                } else {
+                    container.innerHTML = '<button class="btn btn-outline-success btn-sm ms-2" onclick="nasMount()"><i class="bi bi-hdd-network me-1"></i>Mount</button>';
+                }
+            } catch (e) {
+                container.innerHTML = '<button class="btn btn-outline-success btn-sm ms-2" onclick="nasMount()"><i class="bi bi-hdd-network me-1"></i>Mount</button>';
+            }
+        }
+
+        async function nasMount() {
+            const r = document.getElementById('nas-action-result');
+            r.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>Mounting...</span>';
+            try { const res = await fetch('/api/config/mount', {method:'POST'}); const d = await res.json();
+                r.innerHTML = d.success ? '<span class="text-success">'+d.message+'</span>' : '<span class="text-danger">'+d.message+'</span>';
+            } catch(e) { r.innerHTML = '<span class="text-danger">Mount failed</span>'; }
+            updateNasMountBtns(); checkNasStatus();
+        }
+        async function nasUnmount() {
+            const r = document.getElementById('nas-action-result');
+            r.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>Unmounting...</span>';
+            try { const res = await fetch('/api/config/unmount', {method:'POST'}); const d = await res.json();
+                r.innerHTML = d.success ? '<span class="text-warning">'+d.message+'</span>' : '<span class="text-danger">'+d.message+'</span>';
+            } catch(e) { r.innerHTML = '<span class="text-danger">Unmount failed</span>'; }
+            updateNasMountBtns(); checkNasStatus();
+        }
+        async function nasRemount() {
+            const r = document.getElementById('nas-action-result');
+            r.innerHTML = '<span class="text-info"><i class="bi bi-hourglass-split me-1"></i>Remounting...</span>';
+            try { await fetch('/api/config/unmount', {method:'POST'}); const res = await fetch('/api/config/mount', {method:'POST'}); const d = await res.json();
+                r.innerHTML = d.success ? '<span class="text-success">'+d.message+'</span>' : '<span class="text-danger">'+d.message+'</span>';
+            } catch(e) { r.innerHTML = '<span class="text-danger">Remount failed</span>'; }
+            updateNasMountBtns(); checkNasStatus();
+        }
+
+        /* ===================== AI Model Tab ===================== */
+        let _allModels = [];
+        async function initAiTab(cfg) {
+            const select = document.getElementById('cfg-model-select');
+            if (!select) return;
+            try {
+                const res = await fetch('/api/config/models');
+                const data = await res.json();
+                _allModels = data.models;
+                let currentModel = '';
+                const cfgRes = await fetch('/api/config/default_model');
+                if (cfgRes.ok) { const c = await cfgRes.json(); currentModel = c.value || ''; }
+                if (!currentModel) currentModel = data.current;
+                const grouped = {};
+                _allModels.forEach(m => { if (!grouped[m.provider]) grouped[m.provider] = []; grouped[m.provider].push(m); });
+                select.innerHTML = '<option value="">-- Select Model --</option>';
+                for (const [provider, models] of Object.entries(grouped)) {
+                    const og = document.createElement('optgroup'); og.label = provider;
+                    models.forEach(m => { const o = document.createElement('option'); o.value = m.id; o.textContent = m.name + (m.has_apikey ? '' : ' (no key)'); o.disabled = !m.has_apikey; if (m.id===currentModel) o.selected=true; og.appendChild(o); });
+                    select.appendChild(og);
+                }
+                updateAiModelDetails(currentModel);
+            } catch (e) { select.innerHTML = '<option value="">Failed to load</option>'; }
+        }
+        function updateAiModelDetails(id) {
+            const details = document.getElementById('cfg-model-details');
+            const m = _allModels.find(x => x.id === id);
+            if (m) { document.getElementById('cfg-m-provider').textContent = m.provider; document.getElementById('cfg-m-context').textContent = (m.context_limit/1000).toFixed(0)+'K'; document.getElementById('cfg-m-output').textContent = (m.output_limit/1000).toFixed(0)+'K'; details.style.display='block'; }
+            else { details.style.display='none'; }
+        }
+        async function saveAiModel() {
+            const id = document.getElementById('cfg-model-select').value;
+            try { await fetch('/api/config/default_model', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({value: id}) }); _settingsData=null; updateAiModelDetails(id); showToast('Model saved', 'success'); } catch(e) { showToast('Save failed', 'error'); }
+        }
+
+        // Default showToast if not defined
+        if (typeof showToast !== 'function') {
+            function showToast(msg, type) {
+                const t = document.createElement('div');
+                t.className = 'toast align-items-center text-bg-' + (type==='success'?'success':'danger') + ' border-0 show position-fixed bottom-0 end-0 m-3';
+                t.style.zIndex='9999';
+                t.innerHTML = '<div class="d-flex"><div class="toast-body">'+msg+'</div><button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="this.closest(\'.toast\').remove()"></button></div>';
+                document.body.appendChild(t); setTimeout(()=>t.remove(), 3000);
+            }
+        }
+    </script>
+
+    <!-- Bootstrap 5 JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
