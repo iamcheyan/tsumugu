@@ -107,7 +107,7 @@ async def add_sync_folder(req: AddFolderRequest, db: Session = Depends(get_db)):
         "path": folder.path,
         "name": folder.name,
         "enabled": folder.enabled,
-        "message": f"Added '{path}' to sync list",
+        "message": f"Added '{path}' to index",
     }
 
 
@@ -122,7 +122,7 @@ async def remove_sync_folder(folder_id: int, db: Session = Depends(get_db)):
     db.delete(folder)
     db.commit()
 
-    return {"message": f"Removed '{path}' from sync list"}
+    return {"message": f"Removed '{path}' from index"}
 
 
 @router.put("/folders/{folder_id}/toggle")

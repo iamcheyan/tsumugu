@@ -939,6 +939,9 @@ async def ai_tag_files(
                 db.add(meta)
             db.commit()
 
+            # Update file_index.json immediately
+            _update_file_index_tag(nas_root, file_path, tag)
+
             tagged.append({"path": file_path, "name": file_name, "tag": tag})
 
         except Exception as e:
@@ -975,6 +978,103 @@ async def get_file_tags(
         pass
 
     return {"success": True, "tags": tags}
+
+
+@router.post("/set-tag")
+def _update_file_index_tag(nas_root: str, file_path: str, tag: str | None):
+    """Update a file's tag in file_index.json (create if not exists)."""
+    import json as _json
+    index_path = os.path.join(nas_root, "file_index.json")
+
+    # Load existing index or create new
+    index = {"generated_at": 0, "file_count": 0, "files": []}
+    if os.path.exists(index_path):
+        try:
+            with open(index_path, "r", encoding="utf-8") as f:
+                index = _json.load(f)
+        except (_json.JSONDecodeError, OSError):
+            pass
+
+    # Find and update the file entry
+    found = False
+    for entry in index.get("files", []):
+        if entry.get("path") == file_path:
+            entry["tag"] = tag
+            found = True
+            break
+
+    if not found:
+        # Add new entry
+        full_path = os.path.join(nas_root, file_path.lstrip("/"))
+        file_size = 0
+        try:
+            file_size = os.path.getsize(full_path)
+        except OSError:
+            pass
+        index.setdefault("files", []).append({
+            "path": file_path,
+            "size": file_size,
+            "tag": tag,
+            "md5": "",
+        })
+
+    index["file_count"] = len(index["files"])
+
+    # Save back
+    try:
+        with open(index_path, "w", encoding="utf-8") as f:
+            _json.dump(index, f, indent=2, ensure_ascii=False)
+    except OSError as e:
+        print(f"[file_index] Failed to write: {e}")
+
+
+async def set_file_tag(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Set or clear the tag for a single file."""
+    body = await request.json()
+    file_path = body.get("path", "")
+    tag = body.get("tag", "")  # "music", "podcast", or "" to clear
+
+    if not file_path:
+        return {"success": False, "message": "No file path provided"}
+
+    # Normalize tag
+    if tag and tag not in ("music", "podcast"):
+        return {"success": False, "message": "Invalid tag. Use 'music', 'podcast', or ''."}
+    tag = tag or None
+
+    # Get NAS root for file_index.json
+    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
+    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+
+    meta = db.query(FileMetadata).filter(FileMetadata.file_path == file_path).first()
+    if meta:
+        meta.tag = tag
+    else:
+        full_path = os.path.join(nas_root, file_path.lstrip('/'))
+        file_name = os.path.basename(full_path)
+        file_size = 0
+        try:
+            file_size = os.path.getsize(full_path)
+        except OSError:
+            pass
+        meta = FileMetadata(
+            file_path=file_path,
+            file_name=file_name,
+            file_size=file_size,
+            file_type="audio",
+            tag=tag,
+        )
+        db.add(meta)
+
+    db.commit()
+
+    # Update file_index.json immediately
+    _update_file_index_tag(nas_root, file_path, tag)
+
+    return {"success": True, "message": f"Tag updated to '{tag or 'none'}'"}
 
 
 # ── File-type detection for missing extensions ──────────────────────

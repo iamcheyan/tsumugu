@@ -554,6 +554,8 @@ body.player-active {
 .context-menu {
     position: absolute;
     min-width: 160px;
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 

@@ -474,7 +474,7 @@
                     warning: { bg: 'rgba(251,191,36,0.08)', border: '#fbbf24', icon: '⚠', iconColor: '#fbbf24' },
                     info:    { bg: 'rgba(96,165,250,0.08)', border: '#60a5fa', icon: 'ℹ', iconColor: '#60a5fa' },
                 };
-                const c = colors[type] || colors.info;
+                const c = colors[entry.type] || colors.info;
                 const timeStr = entry.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 return `<div class="activity-entry" style="background:${c.bg}; border-left: 3px solid ${c.border}; border-radius: 6px; padding: 8px 10px; display: flex; align-items: flex-start; gap: 8px;">
                     <span style="color:${c.iconColor}; font-size: 0.85rem; flex-shrink: 0; margin-top: 1px;">${c.icon}</span>
@@ -533,8 +533,8 @@
                         <span>AI Model</span>
                     </button>
                     <button class="settings-nav-item" data-tab="sync" onclick="switchSettingsTab('sync', this)">
-                        <i class="bi bi-arrow-repeat"></i>
-                        <span>File Sync</span>
+                        <i class="bi bi-file-earmark-code"></i>
+                        <span>File Index</span>
                     </button>
                     <button class="settings-nav-item" data-tab="dependencies" onclick="switchSettingsTab('dependencies', this)">
                         <i class="bi bi-cpu"></i>
@@ -816,14 +816,14 @@
             </div>`;
         }
 
-        /* ===================== File Sync Tab ===================== */
+        /* ===================== File Index Tab ===================== */
         function buildSyncTab() {
             return `
             <div class="settings-section">
-                <h6 class="settings-section-title"><i class="bi bi-arrow-repeat me-2"></i>File Sync</h6>
-                <p class="settings-hint mb-3">Manage folders for device synchronization. Files are indexed by MD5 hash.</p>
+                <h6 class="settings-section-title"><i class="bi bi-file-earmark-code me-2"></i>File Index</h6>
+                <p class="settings-hint mb-3">Generate file_index.json for device synchronization. Files are indexed by MD5 hash.</p>
 
-                <!-- Sync Status -->
+                <!-- Index Status -->
                 <div class="settings-group">
                     <div id="sync-status-area" class="p-2 rounded bg-body-tertiary">
                         <div class="text-center text-muted py-2">
@@ -834,7 +834,7 @@
 
                 <!-- Add Folder -->
                 <div class="settings-group">
-                    <label class="settings-label">Add Sync Folder</label>
+                    <label class="settings-label">Add Index Folder</label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text"><i class="bi bi-folder-plus"></i></span>
                         <input type="text" id="sync-new-folder" class="form-control" placeholder="/Music">
@@ -845,9 +845,9 @@
                     <div class="form-text">Path relative to NAS root (e.g. /Music, /Podcast)</div>
                 </div>
 
-                <!-- Sync Folders List -->
+                <!-- Indexed Folders List -->
                 <div class="settings-group">
-                    <label class="settings-label">Sync Folders</label>
+                    <label class="settings-label">Indexed Folders</label>
                     <div id="sync-folders-list" class="d-flex flex-column gap-1">
                         <div class="text-center text-muted py-2">
                             <div class="spinner-border spinner-border-sm me-1"></div>Loading folders...
@@ -858,8 +858,11 @@
                 <!-- Actions -->
                 <div class="settings-actions mt-3">
                     <button class="btn btn-primary btn-sm fw-semibold" onclick="rescanSync()">
-                        <i class="bi bi-arrow-clockwise me-1"></i>Rescan Now
+                        <i class="bi bi-arrow-clockwise me-1"></i>Regenerate Index
                     </button>
+                    <a href="/api/sync/file-index/download" class="btn btn-outline-info btn-sm" target="_blank">
+                        <i class="bi bi-download me-1"></i>Download Index
+                    </a>
                     <span id="sync-action-result" class="small ms-2"></span>
                 </div>
             </div>`;

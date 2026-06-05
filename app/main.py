@@ -158,7 +158,7 @@ async def startup_event():
                 if os.path.isdir(music_path):
                     db.add(SyncFolder(path="/Music", name="Music", enabled=True))
                     db.commit()
-                    print("[Sync] Added default sync folder: /Music")
+                    print("[Index] Added default index folder: /Music")
 
     finally:
         db.close()

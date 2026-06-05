@@ -40,6 +40,20 @@
                 </tr>
             </thead>
             <tbody>
+                {% if current_path and current_path != '/' %}
+                <tr class="file-row table-active" style="cursor: pointer;" onclick="goToParentDirectory()">
+                    <td><input type="checkbox" class="form-check-input" disabled></td>
+                    <td>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fs-5 flex-shrink-0"><i class="bi bi-arrow-up-circle text-secondary"></i></span>
+                            <span class="text-muted">..</span>
+                        </div>
+                    </td>
+                    <td class="text-end text-muted small">-</td>
+                    <td class="text-end text-muted small d-none d-md-table-cell"></td>
+                    <td class="d-none d-lg-table-cell"><span class="badge bg-secondary">Parent</span></td>
+                </tr>
+                {% endif %}
                 {% for file in files %}
                 <tr class="file-row {% if file.type == 'folder' %}table-active{% endif %}"
                     data-path="{{ file.path }}"
@@ -88,13 +102,21 @@
                         {% if file.type == 'folder' %}
                             <span class="badge bg-secondary">Folder</span>
                         {% elif file.type == 'audio' %}
-                            {% if file.tag == 'music' %}
-                                <span class="badge bg-primary"><i class="bi bi-music-note-beamed me-1"></i>Music</span>
-                            {% elif file.tag == 'podcast' %}
-                                <span class="badge bg-warning text-dark"><i class="bi bi-mic me-1"></i>Podcast</span>
-                            {% else %}
-                                <span class="badge bg-info">Audio</span>
-                            {% endif %}
+                            <div class="tag-badge-wrapper position-relative d-inline-block">
+                                {% if file.tag == 'music' %}
+                                    <span class="badge bg-primary tag-badge" style="cursor:pointer;" data-path="{{ file.path }}" data-current="music"><i class="bi bi-music-note-beamed me-1"></i>Music</span>
+                                {% elif file.tag == 'podcast' %}
+                                    <span class="badge bg-warning text-dark tag-badge" style="cursor:pointer;" data-path="{{ file.path }}" data-current="podcast"><i class="bi bi-mic me-1"></i>Podcast</span>
+                                {% else %}
+                                    <span class="badge bg-info tag-badge" style="cursor:pointer;" data-path="{{ file.path }}" data-current=""><i class="bi bi-music-note-beamed me-1"></i>Audio</span>
+                                {% endif %}
+                                <div class="tag-popup" style="display:none; position:absolute; top:100%; left:0; z-index:100; background:var(--bs-body-bg); border:1px solid var(--bs-border-color); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.25); padding:4px; min-width:120px; margin-top:4px;">
+                                    <button class="dropdown-item d-flex align-items-center gap-2 py-1 px-2" style="font-size:0.78rem;" onclick="setFileTag('{{ file.path }}', 'music')"><i class="bi bi-music-note-beamed text-primary"></i>Music</button>
+                                    <button class="dropdown-item d-flex align-items-center gap-2 py-1 px-2" style="font-size:0.78rem;" onclick="setFileTag('{{ file.path }}', 'podcast')"><i class="bi bi-mic text-warning"></i>Podcast</button>
+                                    <hr class="my-1" style="border-color:var(--bs-border-color);">
+                                    <button class="dropdown-item d-flex align-items-center gap-2 py-1 px-2" style="font-size:0.78rem;" onclick="setFileTag('{{ file.path }}', '')"><i class="bi bi-x-circle text-secondary"></i>Clear</button>
+                                </div>
+                            </div>
                         {% else %}
                             <span class="badge bg-secondary">File</span>
                         {% endif %}
@@ -115,7 +137,17 @@
     <div id="context-menu" class="dropdown-menu show" style="display: none; position: absolute; z-index: 2000;">
         <button class="dropdown-item" onclick="downloadFileFromMenu()"><i class="bi bi-download me-2"></i>Download</button>
         <div class="dropdown-divider"></div>
-        <button class="dropdown-item" onclick="aiTagFromMenu()"><i class="bi bi-tag me-2"></i>AI Tag</button>
+        <div class="dropdown-item d-flex align-items-center gap-2 position-relative" id="tag-submenu-trigger" onmouseenter="showTagSubmenu()" onmouseleave="hideTagSubmenu()">
+            <i class="bi bi-tag me-2"></i>Tag
+            <i class="bi bi-chevron-right ms-auto" style="font-size:0.7rem;"></i>
+            <div id="tag-submenu" class="dropdown-menu show" style="display:none; position:absolute; left:100%; top:-4px; z-index:2001; min-width:130px; box-shadow:0 4px 12px rgba(0,0,0,0.25);">
+                <button class="dropdown-item d-flex align-items-center gap-2" onclick="tagFileFromMenu('music')"><i class="bi bi-music-note-beamed text-primary"></i>Music</button>
+                <button class="dropdown-item d-flex align-items-center gap-2" onclick="tagFileFromMenu('podcast')"><i class="bi bi-mic text-warning"></i>Podcast</button>
+                <hr class="my-1" style="border-color:var(--bs-border-color);">
+                <button class="dropdown-item d-flex align-items-center gap-2" onclick="tagFileFromMenu('')"><i class="bi bi-x-circle text-secondary"></i>Clear</button>
+            </div>
+        </div>
+        <button class="dropdown-item" onclick="aiTagFromMenu()"><i class="bi bi-magic me-2"></i>AI Tag</button>
         <button class="dropdown-item" onclick="aiRenameFromMenu()"><i class="bi bi-magic me-2"></i>AI Rename</button>
         <button class="dropdown-item" onclick="renameFile()"><i class="bi bi-pencil me-2"></i>Rename</button>
         <div class="dropdown-divider"></div>
@@ -258,15 +290,78 @@
         contextMenuTargetType = type;
         contextMenuTargetName = name;
         const menu = document.getElementById('context-menu');
+        const viewportMargin = 8;
+
+        // Show first so we can measure its dimensions without flashing at the
+        // old position.
+        menu.style.visibility = 'hidden';
         menu.style.display = 'block';
-        menu.style.left = event.pageX + 'px';
-        menu.style.top = event.pageY + 'px';
+        menu.style.left = '0';
+        menu.style.top = '0';
+
+        const rect = menu.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        // Prefer opening down/right from the pointer, then flip toward the
+        // opposite side when the menu would overflow the viewport.
+        let left = event.clientX + rect.width + viewportMargin > vw
+            ? event.clientX - rect.width
+            : event.clientX;
+        let top = event.clientY + rect.height + viewportMargin > vh
+            ? event.clientY - rect.height
+            : event.clientY;
+
+        left = Math.min(Math.max(viewportMargin, left), Math.max(viewportMargin, vw - rect.width - viewportMargin));
+        top = Math.min(Math.max(viewportMargin, top), Math.max(viewportMargin, vh - rect.height - viewportMargin));
+
+        left += window.scrollX;
+        top += window.scrollY;
+
+        menu.style.left = left + 'px';
+        menu.style.top = top + 'px';
+        menu.style.visibility = 'visible';
         document.addEventListener('click', hideContextMenu);
     }
 
     function hideContextMenu() {
         document.getElementById('context-menu').style.display = 'none';
+        document.getElementById('tag-submenu').style.display = 'none';
         document.removeEventListener('click', hideContextMenu);
+    }
+
+    function showTagSubmenu() {
+        document.getElementById('tag-submenu').style.display = 'block';
+    }
+    function hideTagSubmenu() {
+        document.getElementById('tag-submenu').style.display = 'none';
+    }
+    function tagFileFromMenu(tag) {
+        hideContextMenu();
+        // Use all selected files, or just the right-clicked file
+        const checked = document.querySelectorAll('.file-checkbox:checked');
+        let paths = [];
+        if (checked.length > 0) {
+            paths = Array.from(checked).map(cb => cb.dataset.path);
+        } else if (contextMenuTarget) {
+            paths = [contextMenuTarget];
+        }
+        if (paths.length === 0) return;
+
+        let done = 0;
+        paths.forEach(p => {
+            fetch('/api/files/set-tag', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: p, tag: tag })
+            }).then(() => {
+                done++;
+                if (done === paths.length) refreshFileList();
+            }).catch(() => {
+                done++;
+                if (done === paths.length) refreshFileList();
+            });
+        });
     }
 
     function downloadFile(path, type) {
@@ -363,6 +458,37 @@
             showToast('Error tagging files: ' + err.message, 'error');
         });
     }
+
+    function setFileTag(path, tag) {
+        // Hide all popups
+        document.querySelectorAll('.tag-popup').forEach(p => p.style.display = 'none');
+        fetch('/api/files/set-tag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path, tag: tag })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) refreshFileList();
+            else showToast(data.message || 'Failed to update tag', 'error');
+        })
+        .catch(err => showToast('Error: ' + err.message, 'error'));
+    }
+
+    // Tag popup: show on hover, hide on mouseleave
+    document.addEventListener('mouseover', function(e) {
+        const badge = e.target.closest('.tag-badge');
+        if (badge) {
+            const popup = badge.parentElement.querySelector('.tag-popup');
+            if (popup) popup.style.display = 'block';
+        }
+    });
+    document.addEventListener('mouseout', function(e) {
+        const related = e.relatedTarget;
+        if (!related || (!related.closest('.tag-badge') && !related.closest('.tag-popup'))) {
+            document.querySelectorAll('.tag-popup').forEach(p => p.style.display = 'none');
+        }
+    });
 
     function aiRenameFromMenu() {
         hideContextMenu();
@@ -978,12 +1104,14 @@
     document.addEventListener('DOMContentLoaded', function() {
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') { hideContextMenu(); hideCreateFolderDialog(); hideRenameDialog(); hideDeleteDialog(); if (typeof hideCleanNamesDialog === 'function') hideCleanNamesDialog(); if (typeof hideAIRenameDialog === 'function') hideAIRenameDialog(); }
-            // Ctrl+A to select all
+            // Ctrl+A to select all (toggle: if all selected, deselect all)
             if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
                 const target = event.target;
                 if (target.tagName === 'INPUT' && (target.type === 'text' || target.type === 'url')) return;
                 event.preventDefault();
-                document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = true);
+                const checkboxes = document.querySelectorAll('.file-checkbox');
+                const allChecked = checkboxes.length > 0 && Array.from(checkboxes).every(cb => cb.checked);
+                checkboxes.forEach(cb => cb.checked = !allChecked);
                 updateSelection();
             }
         });
