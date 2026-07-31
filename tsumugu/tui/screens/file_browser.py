@@ -394,9 +394,10 @@ class FileBrowserScreen(Screen):
 
     def _render_queue(self) -> None:
         area = self.query_one("#queue-area", VerticalScroll)
-        # Remove old progress rows
+        active_ids = {f"task-{t.id}" for t in download_manager.get_all_tasks()}
+        # Remove stale/finished widgets no longer in the task list
         for w in list(area.children):
-            if isinstance(w, Static) and w.id and w.id.startswith("task-"):
+            if isinstance(w, Static) and w.id and w.id.startswith("task-") and w.id not in active_ids:
                 w.remove()
         for task in download_manager.get_all_tasks():
             status = task.status.value
@@ -409,4 +410,9 @@ class FileBrowserScreen(Screen):
             line = f"{icon} {task.title or task.url[:40]}  [{bar}] {task.progress:.0f}% {task.speed} {task.eta}"
             if task.error:
                 line += f"  ERR: {task.error[:30]}"
-            area.mount(Static(line, id=f"task-{task.id}"))
+            wid = f"task-{task.id}"
+            try:
+                existing = area.query_one(f"#{wid}", Static)
+                existing.update(line)
+            except Exception:
+                area.mount(Static(line, id=wid))
