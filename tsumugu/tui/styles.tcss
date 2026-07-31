@@ -1,0 +1,171 @@
+/* Tsumugu TUI — Textual CSS */
+
+Screen {
+    background: $surface;
+}
+
+#main-container {
+    layout: vertical;
+}
+
+/* ── Directory tree (left pane) ─────────────────────────────────────────── */
+
+#tree-pane {
+    width: 32;
+    min-width: 20;
+    max-width: 50;
+    border: round $primary;
+    background: $panel;
+    padding: 0 1;
+    height: 1fr;
+}
+
+#tree-pane Label {
+    background: $primary 20%;
+    padding: 0 1;
+    width: 100%;
+}
+
+#dir-tree {
+    height: 1fr;
+}
+
+/* ── File list (center pane) ────────────────────────────────────────────── */
+
+#content-pane {
+    width: 2fr;
+    border: round $accent;
+    background: $panel;
+    height: 1fr;
+}
+
+#toolbar {
+    height: 3;
+    padding: 0 1;
+    border-bottom: solid $primary 50%;
+    align-horizontal: center;
+    align-vertical: middle;
+}
+
+#search-input {
+    width: 1fr;
+    margin-right: 1;
+}
+
+#sort-select {
+    width: 16;
+    margin-right: 1;
+}
+
+#file-table {
+    height: 1fr;
+}
+
+/* ── Download bar (bottom) ──────────────────────────────────────────────── */
+
+#download-bar {
+    height: auto;
+    min-height: 3;
+    max-height: 14;
+    border-top: round $secondary;
+    background: $boost;
+    padding: 0 1;
+}
+
+#dl-input-row {
+    height: 3;
+    align-vertical: middle;
+}
+
+#url-input {
+    width: 2fr;
+    margin-right: 1;
+}
+
+#format-select {
+    width: 10;
+    margin-right: 1;
+}
+
+#split-select {
+    width: 18;
+    margin-right: 1;
+}
+
+#dl-button {
+    width: 10;
+}
+
+#queue-area {
+    height: auto;
+    max-height: 8;
+    padding: 0 1;
+}
+
+/* ── Status bar ─────────────────────────────────────────────────────────── */
+
+#status-bar {
+    height: 1;
+    background: $primary;
+    color: $text;
+    padding: 0 1;
+}
+
+/* ── Settings screen ────────────────────────────────────────────────────── */
+
+SettingsScreen {
+    align: center middle;
+}
+
+#settings-card {
+    width: 80;
+    max-width: 120;
+    height: auto;
+    max-height: 90%;
+    border: round $primary;
+    background: $panel;
+    padding: 1 2;
+}
+
+#settings-card Label {
+    width: 20;
+    margin-right: 1;
+}
+
+#settings-card Input {
+    width: 1fr;
+}
+
+#settings-card Select {
+    width: 1fr;
+}
+
+.settings-row {
+    height: 3;
+    align-vertical: middle;
+}
+
+/* ── Toast / notifications ──────────────────────────────────────────────── */
+
+#toast {
+    layer: toast;
+    dock: top;
+    width: auto;
+    max-width: 80;
+    padding: 0 2;
+    background: $boost;
+    color: $text;
+    border: round $accent;
+    display: none;
+    text-align: center;
+}
+
+#toast.error {
+    background: $error;
+    color: $text;
+}
+
+#toast.success {
+    background: $success;
+    color: $text;
+}
