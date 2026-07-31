@@ -15,7 +15,6 @@ class SyncScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="settings-card"):
-            yield Label("Sync Management", id="sync-title")
             yield Static("", id="sync-status")
             yield Label("── Sync Folders ──")
             yield DataTable(id="sync-table", cursor_type="row")
@@ -30,6 +29,7 @@ class SyncScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#settings-card").border_title = " Sync Management "
         table = self.query_one("#sync-table", DataTable)
         table.add_column("Path", width=30)
         table.add_column("Name", width=20)

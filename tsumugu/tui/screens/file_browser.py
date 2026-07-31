@@ -73,7 +73,6 @@ class FileBrowserScreen(Screen):
     def compose(self) -> ComposeResult:
         with Horizontal(id="main-container"):
             with Vertical(id="tree-pane"):
-                yield Label("Directories", id="tree-label")
                 yield Tree("NAS Root", id="dir-tree", data="/")
             with Vertical(id="content-pane"):
                 with Horizontal(id="toolbar"):
@@ -98,6 +97,10 @@ class FileBrowserScreen(Screen):
         table.add_column("Modified", key="modified", width=20)
         table.add_column("Type", key="type", width=8)
         table.add_column("Tag", key="tag", width=8)
+
+        self.query_one("#tree-pane").border_title = " Directories "
+        self.query_one("#content-pane").border_title = " Files "
+        self.query_one("#download-bar").border_title = " Download "
 
         tree = self.query_one("#dir-tree", Tree)
         tree.show_root = True

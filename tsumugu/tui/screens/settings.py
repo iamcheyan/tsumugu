@@ -19,8 +19,6 @@ class SettingsScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="settings-card"):
-            yield Label("Settings", id="settings-title")
-            yield Static("")
             yield Label("── NAS Connection ──")
             with Horizontal(classes="settings-row"):
                 yield Label("Address")
@@ -62,6 +60,7 @@ class SettingsScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        self.query_one("#settings-card").border_title = " Settings "
         self._load_config()
 
     @work(thread=True)
