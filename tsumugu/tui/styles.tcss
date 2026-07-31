@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════════════
-   Tsumugu TUI — refined dark theme (Tokyo Night inspired palette)
+   Tsumugu TUI — minimal command-driven layout
    ════════════════════════════════════════════════════════════════════════ */
 
 Screen {
@@ -7,99 +7,75 @@ Screen {
     color: #c0caf5;
 }
 
-/* ── Main layout ────────────────────────────────────────────────────────── */
-#main-container {
-    height: 1fr;
-}
-
-/* ── Directory tree (left pane) ─────────────────────────────────────────── */
-#tree-pane {
-    width: 34;
-    min-width: 22;
-    max-width: 50;
-    height: 1fr;
-    background: #24283b;
+/* ── Command input (top) ────────────────────────────────────────────────── */
+#cmd-input {
+    dock: top;
+    height: 3;
+    margin: 0 0 0 0;
     border: tall #2a2e44;
-    border-title-color: #7aa2f7;
-    border-title-style: bold;
-    padding: 0;
+    background: #24283b;
+    color: #c0caf5;
+    padding: 0 1;
 }
 
-#tree-pane:focus-within {
+#cmd-input:focus {
     border: tall #7aa2f7;
 }
 
-#tree-label {
+/* ── Main split: log + files ────────────────────────────────────────────── */
+#main-area {
+    height: 1fr;
+}
+
+/* ── Log pane (left) ────────────────────────────────────────────────────── */
+#log-pane {
+    width: 1fr;
+    height: 1fr;
+    background: #1f2335;
+    border: tall #2a2e44;
+    padding: 0;
+}
+
+#log-pane:focus-within {
+    border: tall #7aa2f7;
+}
+
+#log {
+    height: 1fr;
+    background: #1f2335;
+    padding: 0 1;
+    scrollbar-gutter: stable;
+}
+
+/* ── Files pane (right) ─────────────────────────────────────────────────── */
+#files-pane {
+    width: 40;
+    min-width: 24;
+    max-width: 60;
+    height: 1fr;
+    background: #24283b;
+    border: tall #2a2e44;
+    padding: 0;
+    scrollbar-gutter: stable;
+}
+
+#files-pane:focus-within {
+    border: tall #7dcfff;
+}
+
+#path-label {
     background: #292e42;
-    color: #7aa2f7;
+    color: #7dcfff;
     padding: 0 1;
     width: 100%;
     text-style: bold;
     border-bottom: solid #2a2e44;
 }
 
-#dir-tree {
-    height: 1fr;
-    background: #24283b;
-    padding: 1 1 0 1;
-    scrollbar-gutter: stable;
-}
-
-/* ── File list (center pane) ────────────────────────────────────────────── */
-#content-pane {
-    width: 2fr;
-    height: 1fr;
-    background: #1f2335;
-    border: tall #2a2e44;
-    border-title-color: #7dcfff;
-    border-title-style: bold;
-    padding: 0;
-}
-
-#content-pane:focus-within {
-    border: tall #7dcfff;
-}
-
-#toolbar {
-    height: 3;
-    padding: 0 1;
-    background: #292e42;
-    border-bottom: solid #2a2e44;
-    align-horizontal: left;
-    align-vertical: middle;
-}
-
-#search-input {
-    width: 1fr;
-    margin: 0 1 0 0;
-    border: tall #3b4261;
-    background: #1f2335;
-}
-
-#search-input:focus {
-    border: tall #7aa2f7;
-}
-
-#sort-select {
-    width: 18;
-    margin: 0 1 0 0;
-}
-
-#refresh-btn {
-    width: 3;
-    min-width: 3;
-    height: 1;
-    background: #292e42;
-    border: tall #3b4261;
-    color: #7aa2f7;
-    text-style: bold;
-}
-
 #file-table {
     height: 1fr;
-    background: #1f2335;
-    padding: 1 1 0 1;
-    scrollbar-gutter: stable;
+    background: #24283b;
+    padding: 0;
 }
 
 DataTable > .datatable--header {
@@ -115,74 +91,6 @@ DataTable > .datatable--cursor {
 
 DataTable > .datatable--hover {
     background: #3b4054;
-}
-
-/* ── Download bar (bottom) ──────────────────────────────────────────────── */
-#download-bar {
-    height: auto;
-    min-height: 4;
-    max-height: 16;
-    background: #24283b;
-    border: tall #2a2e44;
-    border-top: tall #7aa2f7;
-    border-title-color: #9ece6a;
-    border-title-style: bold;
-    padding: 1 1 0 1;
-}
-
-#dl-input-row {
-    height: 3;
-    align-vertical: middle;
-    padding: 0 0 1 0;
-}
-
-#url-input {
-    width: 2fr;
-    margin: 0 1 0 0;
-    border: tall #3b4261;
-    background: #1f2335;
-    color: #c0caf5;
-}
-
-#url-input:focus {
-    border: tall #9ece6a;
-}
-
-#format-select {
-    width: 12;
-    margin: 0 1 0 0;
-}
-
-#split-select {
-    width: 20;
-    margin: 0 1 0 0;
-}
-
-#dl-button {
-    width: 12;
-    background: #9ece6a 20%;
-    border: tall #9ece6a;
-    color: #9ece6a;
-    text-style: bold;
-}
-
-#dl-button:hover {
-    background: #9ece6a 40%;
-    color: #ffffff;
-}
-
-
-#queue-area {
-    height: auto;
-    max-height: 10;
-    padding: 0;
-    scrollbar-gutter: stable;
-}
-
-#queue-label {
-    color: #565f89;
-    text-style: italic;
-    height: 1;
 }
 
 /* ── Footer ─────────────────────────────────────────────────────────────── */
@@ -207,7 +115,7 @@ Footer > .footer--highlight {
     color: #ffffff;
 }
 
-/* ── Buttons (global) ───────────────────────────────────────────────────── */
+/* ── Buttons ────────────────────────────────────────────────────────────── */
 Button {
     background: #292e42;
     border: tall #3b4261;
@@ -254,7 +162,7 @@ Button.-warning:hover {
     color: #ffffff;
 }
 
-/* ── Select (global) ────────────────────────────────────────────────────── */
+/* ── Select ─────────────────────────────────────────────────────────────── */
 Select {
     background: #1f2335;
     border: tall #3b4261;
@@ -270,7 +178,7 @@ Select > .select--current {
     color: #c0caf5;
 }
 
-/* ── Input (global) ─────────────────────────────────────────────────────── */
+/* ── Input ──────────────────────────────────────────────────────────────── */
 Input {
     background: #1f2335;
     border: tall #3b4261;
@@ -294,19 +202,9 @@ SettingsScreen {
     background: #24283b;
     border: tall #3b4261;
     border-title-color: #7aa2f7;
-    border-title-background: #292e42;
     border-title-style: bold;
     padding: 1 2;
     scrollbar-gutter: stable;
-}
-
-#settings-title {
-    color: #7aa2f7;
-    text-style: bold;
-    width: 100%;
-    text-align: center;
-    padding: 0 0 1 0;
-    border-bottom: solid #2a2e44;
 }
 
 #settings-card > Label {
@@ -376,7 +274,7 @@ SyncScreen {
     margin: 1 0;
 }
 
-/* ── Dialogs ────────────────────────────────────────────────────────────── */
+/* ── Dialogs ─────────────────────────────────────────────────────────────── */
 InputDialog, ConfirmDialog {
     align: center middle;
 }
@@ -417,32 +315,4 @@ Scrollbar {
     scrollbar-color: #7aa2f7 40%;
     scrollbar-color-active: #7aa2f7 80%;
     scrollbar-color-hover: #7aa2f7 60%;
-}
-
-/* ── Tree styling ───────────────────────────────────────────────────────── */
-Tree {
-    background: #24283b;
-    color: #c0caf5;
-}
-
-Tree > .tree--label {
-    color: #c0caf5;
-}
-
-Tree > .tree--label-selected {
-    background: #7aa2f7 30%;
-    color: #ffffff;
-}
-
-Tree > .tree--label:hover {
-    background: #3b4054;
-}
-
-Tree > .tree--cursor {
-    background: #7aa2f7 30%;
-    color: #ffffff;
-}
-
-Tree > .tree--guides {
-    color: #3b4261;
 }
