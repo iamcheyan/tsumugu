@@ -221,6 +221,16 @@
         </div>
 
     </div>
+<!-- Task Detail Modal -->
+<div id="task-detail-modal" style="display:none; position:fixed; inset:0; z-index:2000; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;" onclick="if(event.target===this)closeTaskDetail()">
+    <div style="background:var(--bs-body-bg); border-radius:10px; box-shadow:0 8px 32px rgba(0,0,0,0.3); width:90%; max-width:640px; max-height:85vh; display:flex; flex-direction:column;">
+        <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
+            <h5 class="mb-0" style="font-size:1rem;"><i class="bi bi-info-circle me-2"></i>下载任务详情</h5>
+            <button type="button" class="btn-close" onclick="closeTaskDetail()"></button>
+        </div>
+        <div id="task-detail-body" class="p-3" style="overflow-y:auto;"></div>
+    </div>
+</div>
 </div>
 
 <script>
@@ -1069,6 +1079,87 @@
         }
     }
 
+    // ==================== Task Detail Modal ====================
+    const _stageLabels = {
+        queued: '排队', prepare: '准备', download_start: '开始下载', download: '下载中',
+        convert_start: '转换格式', split_start: '开始切分', split_done: '切分完成',
+        complete: '完成', fail: '失败', cancel: '取消',
+    };
+    const _statusLabels = {
+        pending: '排队中', downloading: '下载中', converting: '转换中', splitting: '切分中',
+        completed: '已完成', failed: '已失败', cancelled: '已取消',
+    };
+
+    async function openTaskDetail(taskId) {
+        const modal = document.getElementById('task-detail-modal');
+        const body = document.getElementById('task-detail-body');
+        if (!modal || !body) return;
+        body.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border spinner-border-sm"></div> 加载中...</div>';
+        modal.style.display = 'flex';
+        try {
+            const resp = await fetch('/api/youtube/task/' + taskId);
+            if (resp.status === 404) {
+                body.innerHTML = '<div class="text-center text-muted py-4"><i class="bi bi-clock-history d-block mb-2" style="font-size:1.5rem;"></i>该任务详情已过期（任务结束超过一段时间后自动清理）<br>无法查看历史日志。</div>';
+                return;
+            }
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const d = await resp.json();
+            renderTaskDetail(d);
+        } catch (e) {
+            body.innerHTML = '<div class="text-center text-danger py-4">加载失败: ' + e.message + '</div>';
+        }
+    }
+
+    function closeTaskDetail() {
+        const modal = document.getElementById('task-detail-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    function renderTaskDetail(d) {
+        const body = document.getElementById('task-detail-body');
+        const statusLabel = _statusLabels[d.status] || d.status;
+        const statusColor = { completed: 'success', failed: 'danger', cancelled: 'secondary' }[d.status] || 'primary';
+        const infoRows = [
+            ['标题', d.title || '(未知)'],
+            ['状态', '<span class="badge bg-' + statusColor + '">' + statusLabel + '</span> ' + (d.error ? '<span class="text-danger">' + escapeHtml(d.error) + '</span>' : '')],
+            ['进度', Math.round(d.progress) + '%' + (d.speed ? ' · ' + escapeHtml(d.speed) : '') + (d.eta ? ' · ETA ' + escapeHtml(d.eta) : '')],
+            ['下载类型', d.download_type === 'youtube' ? 'YouTube (yt-dlp)' : '直接下载 (wget)'],
+            ['格式', d.format || '-'],
+            ['保存目录', escapeHtml(d.save_path || '-')],
+            ['落盘文件', d.file_path ? escapeHtml(d.file_path) : '<span class="text-muted">(尚未生成)</span>'],
+            ['当前文件', d.current_file ? escapeHtml(d.current_file) : '-'],
+            ['切分模式', d.split_mode ? d.split_mode + (d.keep_original ? '（保留原文件）' : '（不保留）') : '不切分'],
+            ['创建时间', d.created_at || '-'],
+            ['完成时间', d.completed_at || '-'],
+            ['URL', '<a href="' + escapeHtml(d.url) + '" target="_blank" class="text-break" style="font-size:0.72rem;">' + escapeHtml(d.url) + '</a>'],
+        ];
+        const eventsHtml = (d.events && d.events.length)
+            ? d.events.map(function(ev) {
+                const stageLabel = _stageLabels[ev.stage] || ev.stage;
+                const lvlColor = ev.level === 'error' ? 'text-danger' : (ev.level === 'warning' ? 'text-warning' : 'text-body');
+                const stageColor = { fail: 'danger', cancel: 'warning', complete: 'success', convert_start: 'info', split_done: 'success' }[ev.stage] || 'secondary';
+                return '<div class="d-flex gap-2 py-1 border-bottom" style="font-size:0.75rem;">'
+                    + '<span class="text-muted flex-shrink-0" style="width:64px;font-variant-numeric:tabular-nums;">' + ev.timestamp + '</span>'
+                    + '<span class="badge bg-' + stageColor + ' flex-shrink-0" style="min-width:64px;font-size:0.65rem;">' + stageLabel + '</span>'
+                    + '<span class="' + lvlColor + ' flex-grow-1">' + escapeHtml(ev.message) + '</span>'
+                    + '</div>';
+            }).join('')
+            : '<div class="text-muted text-center py-3" style="font-size:0.8rem;">暂无日志</div>';
+        body.innerHTML =
+            '<div class="mb-3">' + infoRows.map(function(r) {
+                return '<div class="row mb-1" style="font-size:0.8rem;"><div class="col-3 text-muted">' + r[0] + '</div><div class="col-9">' + r[1] + '</div></div>';
+            }).join('') + '</div>'
+            + '<h6 class="mb-2"><i class="bi bi-list-task me-1"></i>执行日志</h6>'
+            + '<div style="max-height:40vh; overflow-y:auto; border:1px solid var(--bs-border-color); border-radius:6px; padding:0 8px; background:var(--bs-tertiary-bg);">' + eventsHtml + '</div>';
+    }
+
+    function escapeHtml(s) {
+        if (s == null) return '';
+        return String(s).replace(/[&<>"']/g, function(c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
     // ==================== Folder Compression ====================
     function addCompressTask(taskId, folderName) {
         // Avoid duplicates
@@ -1233,8 +1324,8 @@
             const closeBtn = taskElement.querySelector('.btn-close');
             if (closeBtn) closeBtn.onclick = function() { removeTask(data.task_id); };
             taskElement.style.opacity = '0.7';
-            // Auto-hide after delay
-            setTimeout(() => { removeTask(data.task_id); }, 3000);
+            // Auto-hide after delay (keep clickable long enough to view detail)
+            setTimeout(() => { removeTask(data.task_id); }, 60000);
         } else if (data.status === 'failed') {
             refreshFileList();
             // Mark as failed, change close button to remove
@@ -1308,7 +1399,9 @@
         const div = document.createElement('div');
         div.id = 'task-' + taskId;
         div.className = 'p-2 rounded';
-        div.style.cssText = 'background: var(--bs-body-bg); border: 1px solid var(--bs-border-color);';
+        div.style.cssText = 'background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); cursor: pointer;';
+        div.title = '点击查看任务详情';
+        div.onclick = function(e) { if (e.target.closest('button')) return; openTaskDetail(taskId); };
         div.innerHTML = '<div class="d-flex justify-content-between align-items-center mb-1"><span class="task-title fw-medium text-truncate" style="max-width:260px; font-size: 0.8rem;">Loading...</span><button class="btn btn-sm btn-close py-0" onclick="cancelDownload(' + taskId + ')" style="font-size: 0.6rem;"></button></div><div class="d-flex align-items-center gap-2 mb-1"><div class="progress flex-grow-1" style="height: 4px;"><div class="progress-bar-fill bg-primary rounded" style="width: 0%"></div></div><span class="task-progress text-muted" style="font-size: 0.7rem;">0%</span></div><div class="d-flex gap-2" style="font-size: 0.7rem;"><span class="task-status status-pending">Pending</span><span class="task-speed text-muted"></span><span class="task-eta text-muted"></span></div><div class="task-split-info mt-1 text-center text-info fw-medium" style="display:none; font-size: 0.7rem;"><i class="bi bi-music-note-beamed me-1"></i>Splitting...</div>';
         return div;
     }

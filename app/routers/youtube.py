@@ -702,6 +702,18 @@ async def get_active_tasks():
     """
     return {"tasks": download_manager.get_active_tasks()}
 
+@router.get("/task/{task_id}")
+async def get_task_detail(task_id: int):
+    """Full detail for one download task, including a timestamped step log.
+
+    Powers the click-to-open task detail panel. Returns 404 when the task is
+    no longer in memory (evicted after the retention window or never existed).
+    """
+    detail = download_manager.get_task_detail(task_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Task not found or expired")
+    return detail
+
 @router.get("/history")
 async def get_download_history(db: Session = Depends(get_db)):
     downloads = db.query(DownloadHistory).order_by(DownloadHistory.created_at.desc()).limit(10).all()

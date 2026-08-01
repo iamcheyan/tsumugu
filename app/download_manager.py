@@ -60,10 +60,14 @@ class DownloadTask:
     download_type: str = "youtube"  # "youtube" or "direct"
     process: Optional[subprocess.Popen] = None
     file_path: Optional[str] = None
+    # Timestamped step log for the task-detail panel.
+    events: List[Dict[str, str]] = None
 
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = datetime.now()
+        if self.events is None:
+            self.events = []
 
 
 class DownloadManager:
@@ -99,6 +103,42 @@ class DownloadManager:
                 self.tasks.pop(tid, None)
                 self._terminal_at.pop(tid, None)
 
+    def _log_event(self, task: DownloadTask, stage: str, message: str, level: str = "info") -> None:
+        """Append a timestamped step to the task's event log (for the detail panel)."""
+        task.events.append({
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "stage": stage,
+            "message": message,
+            "level": level,
+        })
+        logger.debug("[task %s] %s: %s", task.id, stage, message)
+
+    def get_task_detail(self, task_id: int) -> Optional[Dict[str, Any]]:
+        """Full detail for one task (fields + event log), or None if not in memory."""
+        task = self.tasks.get(task_id)
+        if task is None:
+            return None
+        return {
+            "task_id": task.id,
+            "url": task.url,
+            "title": task.title,
+            "format": task.format,
+            "split_mode": task.split_mode,
+            "keep_original": task.keep_original,
+            "save_path": task.save_path,
+            "status": task.status.value,
+            "progress": task.progress,
+            "speed": task.speed,
+            "eta": task.eta,
+            "current_file": task.current_file,
+            "error": task.error,
+            "download_type": task.download_type,
+            "file_path": task.file_path,
+            "created_at": task.created_at.strftime("%H:%M:%S") if task.created_at else None,
+            "completed_at": task.completed_at.strftime("%H:%M:%S") if task.completed_at else None,
+            "events": list(task.events),
+        }
+
     async def start(self):
         """Start the download worker"""
         if not self._started:
@@ -133,6 +173,9 @@ class DownloadManager:
         """Add a download task to the queue"""
         self._prune_tasks()
         self.tasks[task.id] = task
+        self._log_event(task, "queued", f"任务已加入队列（{task.download_type}）— 保存到 {task.save_path}")
+        if task.split_mode:
+            self._log_event(task, "queued", f"切分模式: {task.split_mode}" + ("（保留原文件）" if task.keep_original else "（不保留原文件）"))
         await self.queue.put(task.id)
         await self._broadcast_progress(task)
         return task.id
@@ -141,16 +184,15 @@ class DownloadManager:
         """Cancel a download task (kills the subprocess if one is running)"""
         if task_id not in self.tasks:
             return False
-        task = self.tasks[task_id]
-        if task.status not in [DownloadStatus.PENDING, DownloadStatus.DOWNLOADING]:
-            return False
         task.status = DownloadStatus.CANCELLED
         task.completed_at = datetime.now()
         self._terminal_at[task.id] = task.completed_at
+        self._log_event(task, "cancel", "用户取消任务，正在终止子进程", "warning")
         await self._broadcast_progress(task)
         self._update_history(task, DownloadStatus.CANCELLED.value)
         if task.process is not None and task.process.poll() is None:
             await asyncio.to_thread(self._terminate_process, task)
+        self._log_event(task, "cancel", "子进程已终止")
         return True
 
     def _terminate_process(self, task: DownloadTask) -> None:
@@ -292,6 +334,7 @@ class DownloadManager:
         """Process a single download task"""
         try:
             # Ensure save directory exists and is writable
+            self._log_event(task, "prepare", f"检查保存目录: {task.save_path}")
             try:
                 os.makedirs(task.save_path, exist_ok=True)
                 # Test write permission
@@ -299,6 +342,7 @@ class DownloadManager:
                 with open(test_file, 'w') as f:
                     f.write('test')
                 os.remove(test_file)
+                self._log_event(task, "prepare", "目录可写，权限正常")
             except PermissionError as e:
                 await self._fail_task(task, f"Permission denied: Cannot write to '{task.save_path}'")
                 return
@@ -309,6 +353,8 @@ class DownloadManager:
             task.status = DownloadStatus.DOWNLOADING
             await self._broadcast_progress(task)
             self._update_history(task, DownloadStatus.DOWNLOADING.value)
+            self._log_event(task, "download_start", f"开始下载（{'yt-dlp' if task.download_type == 'youtube' else 'wget 直接下载'}）")
+            self._log_event(task, "download_start", f"URL: {task.url}")
 
             if task.download_type == "direct":
                 # Direct file download via wget
@@ -318,6 +364,7 @@ class DownloadManager:
                 # YouTube download via yt-dlp
                 format_ext = task.format.lower()
                 ydl_opts = self._build_ydl_opts(task, format_ext)
+                self._log_event(task, "download_start", f"输出模板: {task.save_path}/%(title)s.{format_ext}")
 
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, self._download_with_ytdlp, task, ydl_opts)
@@ -332,6 +379,7 @@ class DownloadManager:
                     task.progress = 100.0
                     task.completed_at = datetime.now()
                     self._terminal_at[task.id] = task.completed_at
+                    self._log_event(task, "complete", f"任务完成 — 文件: {task.file_path or '(未记录)'}")
                     await self._broadcast_progress(task)
                     self._update_history(task, DownloadStatus.COMPLETED.value, file_path=task.file_path)
 
@@ -361,14 +409,18 @@ class DownloadManager:
     def _download_with_ytdlp(self, task: DownloadTask, ydl_opts: dict):
         """Download using yt-dlp (runs in thread pool)"""
         try:
+            self._log_event(task, "download", "yt-dlp 开始抓取与下载")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([task.url])
             task.file_path = self._find_downloaded_file(task)
+            self._log_event(task, "download", f"下载完成，落盘文件: {task.file_path or '(未找到)'}")
         except Exception as e:
             if task.status == DownloadStatus.CANCELLED:
                 # Cooperative abort raised from _progress_hook; not a failure.
                 return
+            self._log_event(task, "download", f"yt-dlp 异常: {e}", "error")
             raise Exception(f"Download failed: {str(e)}") from e
+
 
     def _download_with_wget(self, task: DownloadTask):
         """Download a direct file using wget with resume support (runs in thread pool).
@@ -384,6 +436,7 @@ class DownloadManager:
             task.current_file = filename
 
         output_path = os.path.join(task.save_path, filename)
+        self._log_event(task, "download", f"wget 输出: {output_path}")
 
         cmd = [
             "wget",
@@ -440,6 +493,7 @@ class DownloadManager:
                 raise Exception(f"wget exited with code {proc.returncode}")
             if proc.returncode == 0:
                 task.file_path = output_path
+                self._log_event(task, "download", f"wget 完成，文件: {output_path}")
 
         except Exception as e:
             if task.status != DownloadStatus.CANCELLED:
@@ -490,28 +544,32 @@ class DownloadManager:
                 )
 
         elif d['status'] == 'finished':
+            # yt-dlp finished downloading the raw stream; FFmpeg now converts
+            # to the target codec. This is what the UI shows as "Converting".
             task.status = DownloadStatus.CONVERTING
             task.progress = 100.0
             task.speed = ""
             task.eta = ""
+            self._log_event(task, "convert_start", f"原始音频下载完毕，ffmpeg 开始转换为 .{task.format}（192kbps）")
             if self._loop and self._loop.is_running():
                 broadcast_sync(
                     self.websockets, self._loop,
                     build_message("download_progress", **self._progress_fields(task)),
                 )
-    
     async def _split_audio(self, task: DownloadTask):
         """Split audio file if split_mode is set; failure marks the task FAILED"""
         try:
             # Update status to splitting
             task.status = DownloadStatus.SPLITTING
             await self._broadcast_progress(task)
+            self._log_event(task, "split_start", f"开始切分（模式: {task.split_mode}）")
 
             # Find the downloaded audio file
             audio_file = self._find_downloaded_file(task)
             if not audio_file:
                 await self._fail_task(task, "Could not find downloaded file to split")
                 return
+            self._log_event(task, "split_start", f"待切分文件: {audio_file}")
 
             # Perform the split
             result = await audio_splitter.split_audio(
@@ -523,6 +581,9 @@ class DownloadManager:
 
             if result.success:
                 logger.info("Successfully split %d tracks from %s", len(result.files), audio_file)
+                self._log_event(task, "split_done", f"切分完成，生成 {len(result.files)} 首" + ("（已保留原文件）" if task.keep_original else "（已删除原文件）"))
+                for f in result.files:
+                    self._log_event(task, "split_done", f"  → {f}")
             else:
                 await self._fail_task(task, f"Split failed: {result.error}")
 
@@ -535,8 +596,10 @@ class DownloadManager:
         task.error = error
         task.completed_at = datetime.now()
         self._terminal_at[task.id] = task.completed_at
+        self._log_event(task, "fail", f"任务失败: {error}", "error")
         await self._broadcast_progress(task)
         self._update_history(task, DownloadStatus.FAILED.value)
+
     
     def _find_downloaded_file(self, task: DownloadTask) -> Optional[str]:
         """Find the downloaded audio file based on task info"""
