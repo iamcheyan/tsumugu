@@ -388,6 +388,8 @@ class DownloadManager:
 
             if proc.returncode != 0 and task.status != DownloadStatus.CANCELLED:
                 raise Exception(f"wget exited with code {proc.returncode}")
+            if proc.returncode == 0:
+                task.file_path = output_path
 
         except Exception as e:
             if task.status != DownloadStatus.CANCELLED:
