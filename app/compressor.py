@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, Dict, List
 
@@ -21,6 +21,12 @@ class CompressStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+# Bounded retention for finished tasks so the manager cannot grow unbounded.
+TASK_RETENTION = timedelta(hours=1)
+MAX_TASKS = 100
+_TERMINAL_STATUSES = (CompressStatus.COMPLETED, CompressStatus.FAILED, CompressStatus.CANCELLED)
 
 
 @dataclass
@@ -61,6 +67,8 @@ class Compressor:
 
     async def start_compress(self, folder_path: str, folder_name: str) -> int:
         """Start compressing a folder. Returns task_id."""
+        self._evict_expired_tasks()
+
         task_id = self._next_id
         self._next_id += 1
 
@@ -81,6 +89,7 @@ class Compressor:
 
     def _compress(self, task: CompressTask):
         """Compress a folder to zip (runs in thread pool)."""
+        tmp_dir: Optional[str] = None
         try:
             # Collect the file list with a single walk (reused for counting and zipping)
             file_paths: List[str] = []
@@ -101,8 +110,8 @@ class Compressor:
                     # Check cancellation
                     if task.id in self._cancelled:
                         task.status = CompressStatus.CANCELLED
+                        task.completed_at = datetime.now()
                         self._broadcast_sync(task)
-                        shutil.rmtree(tmp_dir, ignore_errors=True)
                         return
 
                     arcname = os.path.relpath(file_path, os.path.dirname(task.folder_path))
@@ -131,8 +140,14 @@ class Compressor:
 
         except Exception as e:
             task.status = CompressStatus.FAILED
+            task.completed_at = datetime.now()
             task.error = str(e)
             self._broadcast_sync(task)
+        finally:
+            # Remove the temp dir on every exit path except success, where the
+            # zip archive must stay on disk until it is downloaded.
+            if tmp_dir and task.status != CompressStatus.COMPLETED:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def cancel(self, task_id: int) -> bool:
         """Cancel a compression task."""
@@ -149,13 +164,38 @@ class Compressor:
     def cleanup_task(self, task_id: int):
         """Remove temp zip file and task record."""
         task = self.tasks.pop(task_id, None)
-        if task and task.zip_path and os.path.exists(task.zip_path):
-            try:
-                tmp_dir = os.path.dirname(task.zip_path)
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-            except OSError:
-                pass
+        if task:
+            self._remove_task_files(task)
         self._cancelled.discard(task_id)
+
+    def _remove_task_files(self, task: CompressTask):
+        """Remove the temp dir holding a finished task's zip archive."""
+        if task.zip_path:
+            tmp_dir = os.path.dirname(task.zip_path)
+            if tmp_dir:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    def _evict_expired_tasks(self):
+        """Drop terminal tasks older than the retention window; cap the dict."""
+        now = datetime.now()
+        for task in list(self.tasks.values()):
+            if task.status not in _TERMINAL_STATUSES:
+                continue
+            ended = task.completed_at or task.created_at or now
+            if now - ended > TASK_RETENTION:
+                self.tasks.pop(task.id, None)
+                self._remove_task_files(task)
+
+        # Hard cap: evict the oldest terminal tasks if the dict is over MAX_TASKS.
+        over = len(self.tasks) - MAX_TASKS
+        if over > 0:
+            oldest_terminal = sorted(
+                (t for t in self.tasks.values() if t.status in _TERMINAL_STATUSES),
+                key=lambda t: t.completed_at or t.created_at or datetime.min,
+            )
+            for task in oldest_terminal[:over]:
+                self.tasks.pop(task.id, None)
+                self._remove_task_files(task)
 
     def _progress_fields(self, task: CompressTask) -> dict:
         """Message payload matching what the frontend consumes for compress_progress."""
