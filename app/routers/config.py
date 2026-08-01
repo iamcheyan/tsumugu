@@ -294,8 +294,10 @@ async def get_cache_stats(db: Session = Depends(get_db)):
     })
 
     # 4. NAS mount point cache (tmp dirs in /tmp/nas_mnt)
+    #    Shallow scan only: the mounts are live CIFS shares, and a full
+    #    recursive walk of a network filesystem can block for minutes.
     nas_mnt_base = "/tmp/nas_mnt"
-    nas_mnt_size = _get_dir_size(nas_mnt_base) if os.path.isdir(nas_mnt_base) else 0
+    nas_mnt_size = _get_dir_size_approx(nas_mnt_base) if os.path.isdir(nas_mnt_base) else 0
     categories.append({
         "name": "NAS 挂载点",
         "description": "NAS 挂载缓存目录",
