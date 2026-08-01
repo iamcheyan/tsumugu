@@ -71,8 +71,11 @@ class Compressor:
         )
         self.tasks[task_id] = task
 
+        # Capture the running loop so the worker thread can schedule broadcasts.
+        loop = asyncio.get_running_loop()
+        self._loop = loop
         # Run compression in thread pool
-        asyncio.get_event_loop().run_in_executor(None, self._compress, task)
+        loop.run_in_executor(None, self._compress, task)
 
         return task_id
 
