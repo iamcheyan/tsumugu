@@ -370,7 +370,6 @@ async def fetch_channel_info_async(url: str) -> dict:
     """Fetch channel info using yt-dlp subprocess (flat-playlist JSON)"""
     def _fetch_channel_info():
         import subprocess
-        import json as _json
 
         # Use subprocess for faster flat-playlist enumeration
         cmd = [
