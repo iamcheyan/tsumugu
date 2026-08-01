@@ -101,16 +101,34 @@ class DownloadManager:
         return task.id
     
     async def cancel_download(self, task_id: int) -> bool:
-        """Cancel a download task"""
-        if task_id in self.tasks:
-            task = self.tasks[task_id]
-            if task.status in [DownloadStatus.PENDING, DownloadStatus.DOWNLOADING]:
-                task.status = DownloadStatus.CANCELLED
-                task.completed_at = datetime.now()
-                await self._broadcast_progress(task)
-                self._update_history(task, DownloadStatus.CANCELLED.value)
-                return True
-        return False
+        """Cancel a download task (kills the subprocess if one is running)"""
+        if task_id not in self.tasks:
+            return False
+        task = self.tasks[task_id]
+        if task.status not in [DownloadStatus.PENDING, DownloadStatus.DOWNLOADING]:
+            return False
+        task.status = DownloadStatus.CANCELLED
+        task.completed_at = datetime.now()
+        await self._broadcast_progress(task)
+        self._update_history(task, DownloadStatus.CANCELLED.value)
+        if task.process is not None and task.process.poll() is None:
+            await asyncio.to_thread(self._terminate_process, task)
+        return True
+
+    def _terminate_process(self, task: DownloadTask) -> None:
+        """Terminate the wget subprocess, escalating to kill (worker thread)."""
+        proc = task.process
+        if proc is None or proc.poll() is not None:
+            return
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                logger.error("Subprocess for task %s did not exit after kill", task.id)
     
     def get_task(self, task_id: int) -> Optional[DownloadTask]:
         """Get a download task by ID"""
@@ -251,18 +269,23 @@ class DownloadManager:
                 self._update_history(task, DownloadStatus.COMPLETED.value, file_path=task.file_path)
             
         except Exception as e:
-            task.status = DownloadStatus.FAILED
-            task.error = str(e)
-            await self._broadcast_progress(task)
-            self._update_history(task, DownloadStatus.FAILED.value)
+            if task.status != DownloadStatus.CANCELLED:
+                task.status = DownloadStatus.FAILED
+                task.error = str(e)
+                await self._broadcast_progress(task)
+                self._update_history(task, DownloadStatus.FAILED.value)
     
     def _download_with_ytdlp(self, task: DownloadTask, ydl_opts: dict):
         """Download using yt-dlp (runs in thread pool)"""
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([task.url])
+            task.file_path = self._find_downloaded_file(task)
         except Exception as e:
-            raise Exception(f"Download failed: {str(e)}")
+            if task.status == DownloadStatus.CANCELLED:
+                # Cooperative abort raised from _progress_hook; not a failure.
+                return
+            raise Exception(f"Download failed: {str(e)}") from e
 
     def _download_with_wget(self, task: DownloadTask):
         """Download a direct file using wget with resume support (runs in thread pool).
@@ -298,6 +321,10 @@ class DownloadManager:
                 text=True,
                 bufsize=1,  # line-buffered
             )
+            task.process = proc
+
+            if task.status == DownloadStatus.CANCELLED:
+                proc.terminate()
 
             # Pattern:  "  55%  12.3MB/s  eta 10s"
             # or:       " 100%  2.1MiB/s  in 5s"
@@ -337,6 +364,9 @@ class DownloadManager:
     
     def _progress_hook(self, task: DownloadTask, d: dict):
         """Progress hook for yt-dlp"""
+        if task.status == DownloadStatus.CANCELLED:
+            # Cooperative abort: raising here aborts ydl.download().
+            raise Exception("Download cancelled")
         if d['status'] == 'downloading':
             # Extract progress info
             total_bytes = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
