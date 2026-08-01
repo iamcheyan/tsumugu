@@ -308,9 +308,6 @@ async def fetch_playlist_info_async(url: str) -> dict:
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _fetch_playlist_info)
 
-def is_playlist_url(url: str) -> bool:
-    """Check if URL is a playlist URL"""
-    return 'list=' in url or '/playlist' in url
 
 @router.post("/info")
 async def get_video_info(video_info: VideoInfo):
