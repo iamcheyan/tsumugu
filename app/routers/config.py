@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Config
 from ..nas_mount import mount_nas, unmount_nas, get_mount_status, _get_mount_point
+from ..paths import get_nas_root
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import shutil
@@ -276,8 +277,7 @@ async def get_cache_stats(db: Session = Depends(get_db)):
     })
 
     # 3. Recycle bin
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root = str(nas_root_config.value) if nas_root_config else "/nas"
+    nas_root = get_nas_root(db)
     recycle_bin = os.path.join(nas_root, ".recycle_bin")
     recycle_size = _get_dir_size(recycle_bin) if os.path.isdir(recycle_bin) else 0
     recycle_count = 0
@@ -350,8 +350,7 @@ async def clear_cache(request: Request, db: Session = Depends(get_db)):
     total_freed += freed
 
     # 3. Recycle bin (clear contents, keep the directory)
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root = str(nas_root_config.value) if nas_root_config else "/nas"
+    nas_root = get_nas_root(db)
     recycle_bin = os.path.join(nas_root, ".recycle_bin")
     freed = 0
     count = 0

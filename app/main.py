@@ -7,6 +7,7 @@ import shutil
 
 from .database import create_tables, get_db
 from .models import Config
+from .paths import get_nas_root
 from .routers import config_router, files_router, youtube_router, audio_router, sync_router
 from .download_manager import download_manager
 from .compressor import compressor
@@ -152,13 +153,11 @@ async def startup_event():
         sync_count = db.query(SyncFolder).count()
         if sync_count == 0:
             # Check if /Music exists in NAS root
-            nas_root_val = db.query(Config).filter(Config.key == "nas_root").first()
-            if nas_root_val:
-                music_path = os.path.join(str(nas_root_val.value), "Music")
-                if os.path.isdir(music_path):
-                    db.add(SyncFolder(path="/Music", name="Music", enabled=True))
-                    db.commit()
-                    print("[Index] Added default index folder: /Music")
+            music_path = os.path.join(get_nas_root(db), "Music")
+            if os.path.isdir(music_path):
+                db.add(SyncFolder(path="/Music", name="Music", enabled=True))
+                db.commit()
+                print("[Index] Added default index folder: /Music")
 
     finally:
         db.close()
@@ -175,8 +174,7 @@ app.include_router(sync_router)
 async def root(request: Request):
     db = next(get_db())
     try:
-        nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-        nas_root = nas_root_config.value if nas_root_config else "/tmp/nas_mnt/NAS"
+        nas_root = get_nas_root(db)
     finally:
         db.close()
     return templates.TemplateResponse(name="index.html", request=request, context={"request": request, "nas_root": nas_root})
