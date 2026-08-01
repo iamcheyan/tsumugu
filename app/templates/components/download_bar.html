@@ -1050,6 +1050,25 @@
         else if (data.type === 'queue_status') updateQueueStatus(data.queue_status);
     }
 
+    // Restore in-flight tasks after a page refresh — WebSocket only pushes
+    // new events, so without this the progress panel stays empty on reload.
+    async function loadActiveTasks() {
+        try {
+            const resp = await fetch('/api/youtube/active');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const tasks = data.tasks || [];
+            if (!tasks.length) return;
+            showDownloadQueue();
+            // Sort so pending/active render before terminal ones.
+            const order = { pending: 0, downloading: 1, converting: 2, splitting: 3, completed: 4, failed: 5, cancelled: 6 };
+            tasks.sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+            tasks.forEach(function(task) { updateTaskProgress(task); });
+        } catch (e) {
+            console.error('Failed to load active tasks:', e);
+        }
+    }
+
     // ==================== Folder Compression ====================
     function addCompressTask(taskId, folderName) {
         // Avoid duplicates
@@ -1376,6 +1395,7 @@
 
     document.addEventListener('DOMContentLoaded', function() {
         connectWebSocket();
+        loadActiveTasks();
         hideError();
         // Load NAS status and set default path
         loadNasStatus();

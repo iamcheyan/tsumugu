@@ -692,6 +692,16 @@ async def cancel_download(task_id: int):
     else:
         raise HTTPException(status_code=404, detail="Task not found or cannot be cancelled")
 
+@router.get("/active")
+async def get_active_tasks():
+    """Snapshot of current in-memory download tasks.
+
+    Used by the UI to restore the progress panel after a page refresh —
+    WebSocket only pushes new events, so without this a refresh loses all
+    in-flight task state.
+    """
+    return {"tasks": download_manager.get_active_tasks()}
+
 @router.get("/history")
 async def get_download_history(db: Session = Depends(get_db)):
     downloads = db.query(DownloadHistory).order_by(DownloadHistory.created_at.desc()).limit(10).all()

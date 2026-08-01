@@ -105,7 +105,11 @@ class DownloadManager:
             self._started = True
             self._loop = asyncio.get_running_loop()
             self._worker_task = asyncio.create_task(self._worker())
-    
+            # A previous worker crash/restart leaves in-memory tasks orphaned;
+            # the matching download_history rows stay "downloading" forever.
+            # Mark them failed so the UI shows the truth instead of a phantom.
+            self.reap_orphans()
+
     async def stop(self):
         """Stop the download worker"""
         if self._worker_task:
@@ -210,6 +214,51 @@ class DownloadManager:
             "active_tasks": self.active_tasks,
             "max_concurrent": self.max_concurrent
         }
+
+    def get_active_tasks(self) -> List[Dict[str, Any]]:
+        """Snapshot of all in-memory tasks for UI restoration on page refresh."""
+        return [self._progress_fields(t) for t in self.tasks.values()]
+
+    def reap_orphans(self) -> int:
+        """Mark download_history rows stuck in a non-terminal state as failed.
+
+        A worker restart loses every in-memory task, so any DB row still
+        pending/downloading/converting/splitting will never progress. Reap
+        them once at startup so the UI doesn't show a phantom "downloading".
+        Returns the number of rows reaped.
+        """
+        from .models import DownloadHistory
+        from .database import SessionLocal
+        non_terminal = (
+            DownloadStatus.PENDING.value,
+            DownloadStatus.DOWNLOADING.value,
+            DownloadStatus.CONVERTING.value,
+            DownloadStatus.SPLITTING.value,
+        )
+        db = SessionLocal()
+        try:
+            rows = (
+                db.query(DownloadHistory)
+                .filter(DownloadHistory.status.in_(non_terminal))
+                .all()
+            )
+            for row in rows:
+                setattr(row, "status", DownloadStatus.FAILED.value)
+                if not getattr(row, "completed_at", None):
+                    setattr(row, "completed_at", datetime.now())
+            db.commit()
+            if rows:
+                logger.info(
+                    "Reaped %d orphan download task(s) interrupted by a previous worker restart",
+                    len(rows),
+                )
+            return len(rows)
+        except Exception:
+            logger.exception("Failed to reap orphan download tasks")
+            db.rollback()
+            return 0
+        finally:
+            db.close()
     
     async def _worker(self):
         """Worker loop that processes download tasks from the queue"""
