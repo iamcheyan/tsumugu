@@ -2,6 +2,7 @@
 Folder Compressor - Background zip compression with real-time progress via WebSocket
 """
 import asyncio
+import logging
 import os
 import shutil
 import tempfile
@@ -14,6 +15,8 @@ from typing import Optional, Dict, List
 from fastapi import WebSocket
 
 from .ws_broadcast import broadcast_sync, build_message
+
+logger = logging.getLogger(__name__)
 
 
 class CompressStatus(str, Enum):
@@ -93,7 +96,7 @@ class Compressor:
         try:
             # Collect the file list with a single walk (reused for counting and zipping)
             file_paths: List[str] = []
-            for root, dirs, files in os.walk(task.folder_path):
+            for root, dirs, files in os.walk(task.folder_path, onerror=self._on_walk_error):
                 file_paths.extend(os.path.join(root, fname) for fname in files)
             task.total_files = max(len(file_paths), 1)
 
@@ -167,6 +170,10 @@ class Compressor:
         if task:
             self._remove_task_files(task)
         self._cancelled.discard(task_id)
+
+    def _on_walk_error(self, err: OSError):
+        """os.walk onerror: log unreadable subtrees, keep walking the rest."""
+        logger.warning("Skipping unreadable directory while compressing: %s", err)
 
     def _remove_task_files(self, task: CompressTask):
         """Remove the temp dir holding a finished task's zip archive."""
