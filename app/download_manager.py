@@ -9,7 +9,7 @@ import subprocess
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timedelta
 import yt_dlp
 from fastapi import WebSocket
 from .audio_splitter import audio_splitter
@@ -56,7 +56,10 @@ class DownloadTask:
 
 class DownloadManager:
     """Manages download queue with concurrent task execution"""
-    
+
+    _TERMINAL_RETENTION = timedelta(hours=1)
+    _MAX_TERMINAL_TASKS = 100
+
     def __init__(self, max_concurrent: int = 3):
         self.max_concurrent = max_concurrent
         self.tasks: Dict[int, DownloadTask] = {}
@@ -66,6 +69,23 @@ class DownloadManager:
         self._worker_task: Optional[asyncio.Task] = None
         self._started = False
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._terminal_at: Dict[int, datetime] = {}
+
+    def _prune_tasks(self) -> None:
+        """Evict terminal tasks past the retention window or beyond the cap."""
+        now = datetime.now()
+        # Age-based: drop terminal tasks older than the retention window.
+        for tid in list(self._terminal_at):
+            if now - self._terminal_at[tid] > self._TERMINAL_RETENTION:
+                self.tasks.pop(tid, None)
+                self._terminal_at.pop(tid, None)
+        # Count-based: keep only the newest MAX_TERMINAL_TASKS terminal entries.
+        terminal_ids = sorted(self._terminal_at, key=lambda tid: self._terminal_at[tid])
+        overflow = len(terminal_ids) - self._MAX_TERMINAL_TASKS
+        if overflow > 0:
+            for tid in terminal_ids[:overflow]:
+                self.tasks.pop(tid, None)
+                self._terminal_at.pop(tid, None)
 
     async def start(self):
         """Start the download worker"""
@@ -95,6 +115,7 @@ class DownloadManager:
     
     async def add_download(self, task: DownloadTask) -> int:
         """Add a download task to the queue"""
+        self._prune_tasks()
         self.tasks[task.id] = task
         await self.queue.put(task.id)
         await self._broadcast_progress(task)
@@ -109,6 +130,7 @@ class DownloadManager:
             return False
         task.status = DownloadStatus.CANCELLED
         task.completed_at = datetime.now()
+        self._terminal_at[task.id] = task.completed_at
         await self._broadcast_progress(task)
         self._update_history(task, DownloadStatus.CANCELLED.value)
         if task.process is not None and task.process.poll() is None:
@@ -214,16 +236,10 @@ class DownloadManager:
                     f.write('test')
                 os.remove(test_file)
             except PermissionError as e:
-                task.status = DownloadStatus.FAILED
-                task.error = f"Permission denied: Cannot write to '{task.save_path}'"
-                await self._broadcast_progress(task)
-                self._update_history(task, DownloadStatus.FAILED.value)
+                await self._fail_task(task, f"Permission denied: Cannot write to '{task.save_path}'")
                 return
             except OSError as e:
-                task.status = DownloadStatus.FAILED
-                task.error = f"Cannot create directory: {str(e)}"
-                await self._broadcast_progress(task)
-                self._update_history(task, DownloadStatus.FAILED.value)
+                await self._fail_task(task, f"Cannot create directory: {str(e)}")
                 return
 
             task.status = DownloadStatus.DOWNLOADING
@@ -266,15 +282,13 @@ class DownloadManager:
                     task.status = DownloadStatus.COMPLETED
                     task.progress = 100.0
                     task.completed_at = datetime.now()
+                    self._terminal_at[task.id] = task.completed_at
                     await self._broadcast_progress(task)
                     self._update_history(task, DownloadStatus.COMPLETED.value, file_path=task.file_path)
-            
+
         except Exception as e:
             if task.status != DownloadStatus.CANCELLED:
-                task.status = DownloadStatus.FAILED
-                task.error = str(e)
-                await self._broadcast_progress(task)
-                self._update_history(task, DownloadStatus.FAILED.value)
+                await self._fail_task(task, str(e))
     
     def _download_with_ytdlp(self, task: DownloadTask, ydl_opts: dict):
         """Download using yt-dlp (runs in thread pool)"""
@@ -452,6 +466,7 @@ class DownloadManager:
         task.status = DownloadStatus.FAILED
         task.error = error
         task.completed_at = datetime.now()
+        self._terminal_at[task.id] = task.completed_at
         await self._broadcast_progress(task)
         self._update_history(task, DownloadStatus.FAILED.value)
     
