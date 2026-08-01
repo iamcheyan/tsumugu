@@ -3,14 +3,18 @@ from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import DownloadHistory, Config
+from ..models import DownloadHistory
 from ..audio_splitter import audio_splitter
 from pydantic import BaseModel
 from typing import Optional, List
 import os
 import mimetypes
 
+from ..paths import resolve_within_nas
+
 router = APIRouter(prefix="/api/audio", tags=["audio"])
+
+templates = Jinja2Templates(directory="app/templates")
 
 class SplitRequest(BaseModel):
     download_id: int
@@ -39,33 +43,29 @@ async def split_audio(split_request: SplitRequest, db: Session = Depends(get_db)
         if download_title and download_format:
             # Search in the download directory
             search_dir = os.path.dirname(file_path) if file_path else "/"
-            for file in os.listdir(search_dir):
-                if file.startswith(download_title) and file.endswith(f".{download_format}"):
-                    file_path = os.path.join(search_dir, file)
-                    break
+            if os.path.isdir(search_dir):
+                for file in os.listdir(search_dir):
+                    if file.startswith(download_title) and file.endswith(f".{download_format}"):
+                        file_path = os.path.join(search_dir, file)
+                        break
     
     if not file_path or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Audio file not found")
-    
+
     # Update status
     setattr(download, 'status', "splitting")
     db.commit()
-    
+
     # Perform the split
     try:
-        # Get chapters if available
-        chapters = None
-        if split_request.split_mode == "chapter_info":
-            # For chapter info, we need to get chapters from yt-dlp
-            # This is a placeholder - in real implementation, we'd fetch chapters
-            chapters = None
-        
+        # Chapters are extracted by audio_splitter from the file's own
+        # metadata (embedded chapters) when none are supplied.
         result = await audio_splitter.split_audio(
             audio_file_path=file_path,
             split_mode=split_request.split_mode,
             keep_original=True,  # Default to keeping original
             output_dir=os.path.dirname(file_path),
-            chapters=chapters
+            chapters=None
         )
         
         if result.success:
@@ -134,16 +134,12 @@ async def get_split_files(download_id: int, db: Session = Depends(get_db)):
 
 @router.get("/stream")
 async def stream_audio(request: Request, path: str = Query(..., description="Path to audio file"), db: Session = Depends(get_db)):
-    """Stream audio file for playback with Range request support"""
-    # Resolve path: try as-is first, then prepend NAS root
-    resolved_path = path
-    if not os.path.exists(path):
-        nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-        nas_root = str(nas_root_config.value) if nas_root_config else "/nas"
-        resolved_path = os.path.join(nas_root, path.lstrip('/'))
-        if not os.path.exists(resolved_path):
-            raise HTTPException(status_code=404, detail=f"Audio file not found: {path}")
-    path = resolved_path
+    """Stream audio file for playback with Range request support."""
+    # Paths from the frontend are NAS-relative (/Music/song.mp3); confine to root
+    path = resolve_within_nas(db, path)
+
+    if not os.path.exists(path) or not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail=f"Audio file not found: {path}")
 
     # Get file size
     file_size = os.path.getsize(path)
@@ -204,19 +200,17 @@ async def stream_audio(request: Request, path: str = Query(..., description="Pat
         )
 
 @router.get("/player")
-async def get_audio_player(request: Request, path: str = Query(..., description="Path to audio file")):
+async def get_audio_player(request: Request, path: str = Query(..., description="Path to audio file"), db: Session = Depends(get_db)):
     """Get audio player component for the given file"""
-    # Check if file exists
-    if not os.path.exists(path):
+    # Confine and verify the file exists
+    path = resolve_within_nas(db, path)
+    if not os.path.exists(path) or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Audio file not found")
     
     # Get filename from path
     filename = os.path.basename(path)
     
-    # Create templates instance
-    templates = Jinja2Templates(directory="app/templates")
-    
-    # Return the audio player template
+    # Return the audio player template (module-level singleton)
     return templates.TemplateResponse(
         name="components/audio_player.html",
         request=request,
