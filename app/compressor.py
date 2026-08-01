@@ -82,13 +82,11 @@ class Compressor:
     def _compress(self, task: CompressTask):
         """Compress a folder to zip (runs in thread pool)."""
         try:
-            # Count total files
-            total = 0
-            for _ in os.walk(task.folder_path):
-                total += 1
-            # More accurate: count actual files
-            total = sum(len(files) for _, _, files in os.walk(task.folder_path))
-            task.total_files = max(total, 1)
+            # Collect the file list with a single walk (reused for counting and zipping)
+            file_paths: List[str] = []
+            for root, dirs, files in os.walk(task.folder_path):
+                file_paths.extend(os.path.join(root, fname) for fname in files)
+            task.total_files = max(len(file_paths), 1)
 
             # Create temp directory for the zip
             tmp_dir = tempfile.mkdtemp(prefix="nas_compress_")
@@ -99,7 +97,7 @@ class Compressor:
             last_broadcast = 0
 
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for root, dirs, files in os.walk(task.folder_path):
+                for file_path in file_paths:
                     # Check cancellation
                     if task.id in self._cancelled:
                         task.status = CompressStatus.CANCELLED
@@ -107,23 +105,21 @@ class Compressor:
                         shutil.rmtree(tmp_dir, ignore_errors=True)
                         return
 
-                    for fname in files:
-                        file_path = os.path.join(root, fname)
-                        arcname = os.path.relpath(file_path, os.path.dirname(task.folder_path))
-                        try:
-                            zf.write(file_path, arcname)
-                        except (PermissionError, OSError):
-                            # Skip unreadable files
-                            pass
+                    arcname = os.path.relpath(file_path, os.path.dirname(task.folder_path))
+                    try:
+                        zf.write(file_path, arcname)
+                    except (PermissionError, OSError):
+                        # Skip unreadable files
+                        pass
 
-                        processed += 1
-                        task.processed_files = processed
-                        task.progress = min(processed / task.total_files * 100, 99.9)
+                    processed += 1
+                    task.processed_files = processed
+                    task.progress = min(processed / task.total_files * 100, 99.9)
 
-                        # Broadcast every ~5 files to avoid flooding
-                        if processed - last_broadcast >= 5:
-                            last_broadcast = processed
-                            self._broadcast_sync(task)
+                    # Broadcast every ~5 files to avoid flooding
+                    if processed - last_broadcast >= 5:
+                        last_broadcast = processed
+                        self._broadcast_sync(task)
 
             # Compression done
             task.zip_path = zip_path
