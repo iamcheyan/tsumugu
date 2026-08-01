@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from starlette.background import BackgroundTask
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import FileMetadata, Config
 from ..compressor import compressor, CompressStatus
+from ..paths import get_nas_root, resolve_within_nas, clean_filename
 from typing import List, Optional, Dict, Any
 import os
 import re
@@ -47,21 +49,24 @@ async def list_files(
     show_hidden: bool = Query(False, description="Show hidden files (names starting with .)"),
     db: Session = Depends(get_db)
 ):
-    # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
-    
-    # Build full filesystem path
-    if path == "/":
-        full_path = nas_root
-    else:
-        full_path = os.path.join(nas_root, path.lstrip('/'))
+    # Build full filesystem path (confined to NAS root)
+    full_path = resolve_within_nas(db, path)
     
     # Get files and directories
     files = []
     try:
         if os.path.exists(full_path) and os.path.isdir(full_path):
             items = os.listdir(full_path)
+            # Batch-load tags for this directory (avoids N+1 queries)
+            rel_paths = [
+                f"{path.rstrip('/')}/{item}" if path != "/" else f"/{item}"
+                for item in items
+            ]
+            tag_map = {}
+            if rel_paths:
+                for meta in db.query(FileMetadata).filter(FileMetadata.file_path.in_(rel_paths)).all():
+                    tag_map[meta.file_path] = meta.tag
+
             for item in items:
                 item_path = os.path.join(full_path, item)
                 stat_info = os.stat(item_path)
@@ -69,21 +74,17 @@ async def list_files(
                 # Determine file type
                 if os.path.isdir(item_path):
                     file_type = "folder"
-                elif item.lower().endswith(('.mp3', '.wav', '.flac', '.m4a', '.ogg', '.aac', '.wma')):
+                elif item.lower().endswith(tuple(AUDIO_EXTENSIONS)):
                     file_type = "audio"
                 else:
                     file_type = "generic"
                 
                 # Format modified time
-                import datetime
                 modified_time = datetime.datetime.fromtimestamp(stat_info.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
                 
-                # Look up tag from database
+                # Look up tag from the preloaded map
                 rel_path = f"{path.rstrip('/')}/{item}" if path != "/" else f"/{item}"
-                tag = None
-                meta = db.query(FileMetadata).filter(FileMetadata.file_path == rel_path).first()
-                if meta:
-                    tag = meta.tag
+                tag = tag_map.get(rel_path)
 
                 files.append({
                     "name": item,
@@ -149,18 +150,8 @@ async def download_file(
     """Download a file directly, or zip a folder on the fly before downloading."""
     from urllib.parse import quote as url_quote
 
-    # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
-
-    # Build full filesystem path
-    full_path = os.path.join(nas_root, path.lstrip('/')) if path != "/" else nas_root
-
-    # Security: ensure resolved path is under nas_root
-    real_nas = os.path.realpath(nas_root)
-    real_full = os.path.realpath(full_path)
-    if not real_full.startswith(real_nas + os.sep) and real_full != real_nas:
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Build full filesystem path (confined to NAS root)
+    full_path = resolve_within_nas(db, path)
 
     if not os.path.exists(full_path):
         raise HTTPException(status_code=404, detail="File or folder not found")
@@ -214,16 +205,8 @@ async def compress_folder(
     db: Session = Depends(get_db)
 ):
     """Start background compression of a folder. Returns a task_id for tracking."""
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
-
-    full_path = os.path.join(nas_root, path.lstrip('/')) if path != "/" else nas_root
-
-    # Security check
-    real_nas = os.path.realpath(nas_root)
-    real_full = os.path.realpath(full_path)
-    if not real_full.startswith(real_nas + os.sep) and real_full != real_nas:
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Resolve folder path (confined to NAS root)
+    full_path = resolve_within_nas(db, path)
 
     if not os.path.exists(full_path) or not os.path.isdir(full_path):
         raise HTTPException(status_code=404, detail="Folder not found")
@@ -299,21 +282,17 @@ async def create_folder(
     db: Session = Depends(get_db)
 ):
     """Create a new folder in the specified directory."""
-    # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+    # Build full filesystem path (confined to NAS root)
+    full_path = resolve_within_nas(db, path)
     
-    # Build full filesystem path
-    if path == "/":
-        full_path = nas_root
-    else:
-        full_path = os.path.join(nas_root, path.lstrip('/'))
-    
-    # Create the folder
-    new_folder_path = os.path.join(full_path, folder_name)
+    # Create the folder (clean the name: no separators or traversal)
+    folder_name_clean = clean_filename(folder_name)
+    if not folder_name_clean:
+        raise HTTPException(status_code=400, detail="Invalid folder name")
+    new_folder_path = os.path.join(full_path, folder_name_clean)
     try:
         os.makedirs(new_folder_path, exist_ok=True)
-        return {"success": True, "message": f"Folder '{folder_name}' created successfully"}
+        return {"success": True, "message": f"Folder '{folder_name_clean}' created successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create folder: {str(e)}")
 
@@ -325,19 +304,18 @@ async def rename_file(
     db: Session = Depends(get_db)
 ):
     """Rename a file or folder."""
-    # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
-    
-    # Build full filesystem paths
-    full_path = os.path.join(nas_root, path.lstrip('/'))
+    # Build full filesystem path (confined to NAS root)
+    full_path = resolve_within_nas(db, path)
     parent_dir = os.path.dirname(full_path)
-    new_full_path = os.path.join(parent_dir, new_name)
+    new_name_clean = clean_filename(new_name)
+    if not new_name_clean:
+        raise HTTPException(status_code=400, detail="Invalid new name")
+    new_full_path = os.path.join(parent_dir, new_name_clean)
     
     try:
         if os.path.exists(full_path):
             os.rename(full_path, new_full_path)
-            return {"success": True, "message": f"Renamed to '{new_name}' successfully"}
+            return {"success": True, "message": f"Renamed to '{new_name_clean}' successfully"}
         else:
             raise HTTPException(status_code=404, detail="File or folder not found")
     except Exception as e:
@@ -350,16 +328,13 @@ async def delete_file(
     db: Session = Depends(get_db)
 ):
     """Delete a file or folder based on configured deletion strategy."""
-    # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+    # Resolve confined path
+    full_path = resolve_within_nas(db, path)
+    nas_root = get_nas_root(db)
     
     # Get deletion strategy
     deletion_strategy_config = db.query(Config).filter(Config.key == "deletion_strategy").first()
     deletion_strategy: str = str(deletion_strategy_config.value) if deletion_strategy_config else "recycle_bin"
-    
-    # Build full filesystem path
-    full_path = os.path.join(nas_root, path.lstrip('/'))
     
     try:
         if os.path.exists(full_path):
@@ -384,6 +359,8 @@ async def delete_file(
                 return {"success": True, "message": f"Deleted '{os.path.basename(full_path)}' permanently"}
         else:
             raise HTTPException(status_code=404, detail="File or folder not found")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete: {str(e)}")
 
@@ -395,13 +372,9 @@ async def move_file(
     db: Session = Depends(get_db)
 ):
     """Move a file or folder to a new location."""
-    # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
-
-    # Build full filesystem paths
-    source_full_path = os.path.join(nas_root, source_path.lstrip('/'))
-    destination_full_path = os.path.join(nas_root, destination_path.lstrip('/'))
+    # Build full filesystem paths (both confined to NAS root)
+    source_full_path = resolve_within_nas(db, source_path)
+    destination_full_path = resolve_within_nas(db, destination_path)
 
     print(f"[MOVE] source_path={source_path} -> {source_full_path}")
     print(f"[MOVE] dest_path={destination_path} -> {destination_full_path}")
@@ -477,15 +450,8 @@ async def find_duplicates(
     """Find duplicate files in the specified directory based on MD5 hash."""
     import hashlib
 
-    # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
-
-    # Build full filesystem path
-    if path == "/":
-        full_path = nas_root
-    else:
-        full_path = os.path.join(nas_root, path.lstrip('/'))
+    # Build full filesystem path (confined to NAS root)
+    full_path = resolve_within_nas(db, path)
 
     if not os.path.exists(full_path) or not os.path.isdir(full_path):
         return {"success": False, "message": "Directory not found"}
@@ -544,12 +510,17 @@ async def ai_rename_files(
 ):
     """Use AI to analyze filenames and suggest clean 'Song-Artist' names."""
     from ..ai_rename import analyze_filenames
+    import asyncio
 
     if not request.files:
         return {"success": False, "message": "No files provided"}
 
     try:
-        suggestions = analyze_filenames(request.files)
+        # analyze_filenames performs blocking LLM HTTP calls (up to 30s timeout).
+        # Run it in a thread pool so the event loop is not blocked.
+        suggestions = await asyncio.get_running_loop().run_in_executor(
+            None, analyze_filenames, request.files
+        )
         return {
             "success": True,
             "suggestions": [
@@ -579,8 +550,7 @@ async def apply_rename(
         return {"success": False, "message": "No renames provided"}
 
     # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+    nas_root = get_nas_root(db)
 
     success_count = 0
     error_count = 0
@@ -593,9 +563,25 @@ async def apply_rename(
         if not old_path or not new_name:
             continue
 
-        old_full_path = os.path.join(nas_root, old_path.lstrip('/'))
+        # Confine old path to NAS root
+        try:
+            old_full_path = resolve_within_nas(db, old_path)
+        except HTTPException:
+            error_count += 1
+            errors.append(f"Access denied: {old_path}")
+            continue
         parent_dir = os.path.dirname(old_full_path)
-        new_full_path = os.path.join(parent_dir, new_name)
+
+        # Sanitize the new name: bare filename only, preserve extension
+        new_name_clean = clean_filename(new_name)
+        if not new_name_clean:
+            error_count += 1
+            errors.append(f"Invalid new name for {old_path}")
+            continue
+        old_ext = os.path.splitext(os.path.basename(old_full_path))[1]
+        if not os.path.splitext(new_name_clean)[1]:
+            new_name_clean = new_name_clean + old_ext
+        new_full_path = os.path.join(parent_dir, new_name_clean)
 
         try:
             if os.path.exists(old_full_path):
@@ -623,8 +609,7 @@ async def get_directory_tree(
     db: Session = Depends(get_db)
 ):
     # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+    nas_root = get_nas_root(db)
 
     # Build directory tree
     tree_data = await _build_directory_tree(nas_root, path, selected, db, show_hidden)
@@ -644,11 +629,10 @@ async def get_tree_children(
     db: Session = Depends(get_db)
 ):
     # Get NAS root from config
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+    nas_root = get_nas_root(db)
 
     # Get children of the specified path
-    children = await _get_directory_children(nas_root, path, selected, show_hidden)
+    children = await _get_directory_children(db, path, selected, show_hidden)
 
     return templates.TemplateResponse(
         name="components/tree_children.html",
@@ -735,9 +719,9 @@ async def _build_directory_tree(nas_root: str, current_path: str, selected: str,
     
     return tree
 
-async def _get_directory_children(nas_root: str, parent_path: str, selected: str, show_hidden: bool = False) -> List[Dict[str, Any]]:
+async def _get_directory_children(db: Session, parent_path: str, selected: str, show_hidden: bool = False) -> List[Dict[str, Any]]:
     """Get children of a specific directory."""
-    full_path = os.path.join(nas_root, parent_path.lstrip('/')) if parent_path != "/" else nas_root
+    full_path = resolve_within_nas(db, parent_path)
     
     if not os.path.exists(full_path) or not os.path.isdir(full_path):
         return []
@@ -808,10 +792,7 @@ async def clean_filenames(
     db: Session = Depends(get_db)
 ):
     """Clean filenames and fix missing extensions in a directory."""
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
-
-    full_path = os.path.join(nas_root, path.lstrip('/')) if path != "/" else nas_root
+    full_path = resolve_within_nas(db, path)
 
     if not os.path.exists(full_path) or not os.path.isdir(full_path):
         return {"success": False, "message": "Directory not found", "renamed": []}
@@ -883,8 +864,7 @@ async def ai_tag_files(
     if not files_to_tag:
         return {"success": False, "message": "No files provided"}
 
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+    nas_root = get_nas_root(db)
 
     tagged = []
     errors = []
@@ -892,7 +872,11 @@ async def ai_tag_files(
     for file_info in files_to_tag:
         file_path = file_info.get("path", "")
         file_name = file_info.get("name", "")
-        full_path = os.path.join(nas_root, file_path.lstrip('/'))
+        try:
+            full_path = resolve_within_nas(db, file_path)
+        except HTTPException:
+            errors.append({"path": file_path, "error": "Access denied"})
+            continue
 
         ext = os.path.splitext(file_name)[1].lower()
         if ext not in AUDIO_EXTENSIONS:
@@ -961,10 +945,7 @@ async def get_file_tags(
     db: Session = Depends(get_db)
 ):
     """Get tags for all files in a directory."""
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
-
-    full_path = os.path.join(nas_root, path.lstrip('/')) if path != "/" else nas_root
+    full_path = resolve_within_nas(db, path)
 
     tags = {}
     try:
@@ -1046,14 +1027,17 @@ async def set_file_tag(
     tag = tag or None
 
     # Get NAS root for file_index.json
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+    nas_root = get_nas_root(db)
 
     meta = db.query(FileMetadata).filter(FileMetadata.file_path == file_path).first()
     if meta:
         meta.tag = tag
     else:
-        full_path = os.path.join(nas_root, file_path.lstrip('/'))
+        # Confine path to NAS root before touching the filesystem
+        try:
+            full_path = resolve_within_nas(db, file_path)
+        except HTTPException:
+            raise HTTPException(status_code=403, detail="Access denied: path is outside the NAS root")
         file_name = os.path.basename(full_path)
         file_size = 0
         try:
@@ -1096,10 +1080,12 @@ async def set_folder_tag(
     tag = tag or None
 
     # Get NAS root
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+    nas_root = get_nas_root(db)
 
-    full_path = os.path.join(nas_root, folder_path.lstrip('/'))
+    try:
+        full_path = resolve_within_nas(db, folder_path)
+    except HTTPException:
+        return {"success": False, "message": "Access denied"}
     if not os.path.exists(full_path) or not os.path.isdir(full_path):
         return {"success": False, "message": "Folder not found"}
 
@@ -1167,7 +1153,8 @@ async def set_folder_tag(
 
 # ── File-type detection for missing extensions ──────────────────────
 
-_AUDIO_EXT = {".mp3", ".m4a", ".flac", ".wav", ".ogg", ".aac", ".wma"}
+_AUDIO_EXT = AUDIO_EXTENSIONS | {".opus"}
+_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tiff"}
 _IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tiff"}
 _VIDEO_EXT = {".mp4", ".avi", ".mkv", ".mov", ".webm"}
 _ALL_KNOWN = _AUDIO_EXT | _IMAGE_EXT | _VIDEO_EXT | {
