@@ -2,18 +2,17 @@
 Download Manager - Handles yt-dlp + wget download queue with real-time progress via WebSocket
 """
 import asyncio
-import json
 import os
 import re
 import subprocess
-import time
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
 import yt_dlp
 from fastapi import WebSocket
 from .audio_splitter import audio_splitter
+from .ws_broadcast import build_message, broadcast_serialized, broadcast_sync
 
 
 class DownloadStatus(str, Enum):
@@ -287,8 +286,9 @@ class DownloadManager:
                             task.eta = ""
 
                     if self._loop and self._loop.is_running():
-                        asyncio.run_coroutine_threadsafe(
-                            self._broadcast_progress(task), self._loop
+                        broadcast_sync(
+                            self.websockets, self._loop,
+                            build_message("download_progress", **self._progress_fields(task)),
                         )
 
             proc.wait()
@@ -336,7 +336,10 @@ class DownloadManager:
             
             # Broadcast progress (thread-safe)
             if self._loop and self._loop.is_running():
-                asyncio.run_coroutine_threadsafe(self._broadcast_progress(task), self._loop)
+                broadcast_sync(
+                    self.websockets, self._loop,
+                    build_message("download_progress", **self._progress_fields(task)),
+                )
 
         elif d['status'] == 'finished':
             task.status = DownloadStatus.CONVERTING
@@ -344,7 +347,10 @@ class DownloadManager:
             task.speed = ""
             task.eta = ""
             if self._loop and self._loop.is_running():
-                asyncio.run_coroutine_threadsafe(self._broadcast_progress(task), self._loop)
+                broadcast_sync(
+                    self.websockets, self._loop,
+                    build_message("download_progress", **self._progress_fields(task)),
+                )
     
     async def _split_audio(self, task: DownloadTask):
         """Split audio file if split_mode is set"""
@@ -392,10 +398,9 @@ class DownloadManager:
         
         return None
     
-    async def _broadcast_progress(self, task: DownloadTask):
-        """Broadcast progress update to all connected WebSockets"""
-        progress_data = {
-            "type": "download_progress",
+    def _progress_fields(self, task: DownloadTask) -> Dict[str, Any]:
+        """Build the progress message fields (shape shared with the frontend)."""
+        return {
             "task_id": task.id,
             "status": task.status.value,
             "progress": task.progress,
@@ -406,20 +411,10 @@ class DownloadManager:
             "error": task.error,
             "queue_status": self.get_queue_status()
         }
-        
-        message = json.dumps(progress_data)
-        
-        # Send to all connected WebSockets
-        disconnected = []
-        for ws in self.websockets:
-            try:
-                await ws.send_text(message)
-            except:
-                disconnected.append(ws)
-        
-        # Remove disconnected WebSockets
-        for ws in disconnected:
-            self.remove_websocket(ws)
+
+    async def _broadcast_progress(self, task: DownloadTask):
+        """Broadcast progress update to all connected WebSockets"""
+        await broadcast_serialized(self.websockets, "download_progress", **self._progress_fields(task))
 
 
 # Global download manager instance
