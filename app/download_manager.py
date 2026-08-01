@@ -182,7 +182,7 @@ class DownloadManager:
 
             if task.download_type == "direct":
                 # Direct file download via wget
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, self._download_with_wget, task)
             else:
                 # YouTube download via yt-dlp
@@ -204,7 +204,7 @@ class DownloadManager:
                     'no_warnings': True,
                 }
 
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, self._download_with_ytdlp, task, ydl_opts)
 
             if task.status != DownloadStatus.CANCELLED:
