@@ -168,8 +168,9 @@ class DownloadManager:
         from .database import SessionLocal
         from .models import DownloadHistory
 
-        db = SessionLocal()
+        db = None
         try:
+            db = SessionLocal()
             row = db.query(DownloadHistory).filter(DownloadHistory.id == task.id).first()
             if row is None:
                 logger.warning("No DownloadHistory row for task %s; skipping writeback", task.id)
@@ -181,7 +182,8 @@ class DownloadManager:
         except Exception:
             logger.exception("Failed to update DownloadHistory for task %s", task.id)
         finally:
-            db.close()
+            if db is not None:
+                db.close()
 
     def get_queue_status(self) -> Dict[str, Any]:
         """Get queue status summary"""
@@ -220,8 +222,8 @@ class DownloadManager:
                     
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                print(f"Worker error: {e}")
+            except Exception:
+                logger.exception("Worker error")
                 await asyncio.sleep(1)
     
     async def _process_download(self, task: DownloadTask):
@@ -375,8 +377,8 @@ class DownloadManager:
 
         except Exception as e:
             if task.status != DownloadStatus.CANCELLED:
-                raise Exception(f"Download failed: {str(e)}")
-    
+                raise Exception(f"Download failed: {str(e)}") from e
+
     def _progress_hook(self, task: DownloadTask, d: dict):
         """Progress hook for yt-dlp"""
         if task.status == DownloadStatus.CANCELLED:
