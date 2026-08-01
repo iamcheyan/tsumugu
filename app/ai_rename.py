@@ -3,10 +3,13 @@ AI-powered file rename module.
 Uses LLM to analyze filenames and suggest clean "Song-Artist" format names.
 """
 import json
+import logging
 import os
 import re
 from typing import List, Dict
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,7 +29,8 @@ def get_opencode_config() -> dict:
     try:
         with open(config_path, "r") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        logger.warning("Failed to read opencode config %s: %s", config_path, e)
         return {}
 
 
@@ -168,7 +172,7 @@ def call_openai(api_key: str, base_url: str, model: str, prompt: str, system_pro
             return result["choices"][0]["message"]["content"]
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8") if e.fp else str(e)
-        raise Exception(f"API error {e.code}: {error_body}")
+        raise Exception(f"API error {e.code}: {error_body}") from e
 
 
 def call_anthropic(api_key: str, base_url: str, model: str, prompt: str, system_prompt: str) -> str:
@@ -205,7 +209,7 @@ def call_anthropic(api_key: str, base_url: str, model: str, prompt: str, system_
             return ""
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8") if e.fp else str(e)
-        raise Exception(f"API error {e.code}: {error_body}")
+        raise Exception(f"API error {e.code}: {error_body}") from e
 
 
 def analyze_filenames(files: List[Dict]) -> List[RenameSuggestion]:
@@ -267,8 +271,8 @@ Remember:
         suggestions_data = None
         try:
             suggestions_data = json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
+        except Exception as e:
+            logger.debug("AI response was not direct JSON, falling back to regex extraction: %s", e)
 
         # Fallback: extract JSON array with regex
         if not isinstance(suggestions_data, list):
@@ -308,6 +312,6 @@ Remember:
         return suggestions
 
     except json.JSONDecodeError as e:
-        raise Exception(f"Failed to parse AI response: {str(e)}")
+        raise Exception(f"Failed to parse AI response: {str(e)}") from e
     except Exception as e:
-        raise Exception(f"AI analysis failed: {str(e)}")
+        raise Exception(f"AI analysis failed: {str(e)}") from e
