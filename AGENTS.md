@@ -33,12 +33,21 @@ app/
 ├── main.py                 # FastAPI app, startup events, main routes
 ├── database.py            # SQLAlchemy setup, session management
 ├── models.py              # SQLAlchemy models (Config, DownloadHistory, FileMetadata)
+├── paths.py               # Shared NAS-root/path confinement helpers
+├── ws_broadcast.py        # Shared websocket message helpers
+├── download_manager.py    # Download task manager (wget/yt-dlp, worker loop)
+├── compressor.py          # Audio compression task manager
+├── ai_rename.py           # AI filename analysis (LLM providers)
+├── audio_splitter.py      # Chapter/silence-based audio splitting
+├── sync_service.py        # MD5 file index generation for device sync
+├── nas_mount.py           # SMB/NFS mount/unmount helpers
 ├── routers/
 │   ├── __init__.py
 │   ├── config.py          # Config management endpoints
 │   ├── files.py           # File browsing endpoints (tree, list, metadata)
-│   ├── youtube.py         # YouTube download endpoints (placeholder)
-│   └── audio.py           # Audio processing endpoints (placeholder)
+│   ├── youtube.py         # YouTube download + preview endpoints
+│   ├── audio.py           # Audio streaming/player/split endpoints
+│   └── sync.py            # Sync folder + file-index endpoints
 ├── templates/
 │   ├── base.html          # Base layout template
 │   ├── index.html         # Home page
@@ -80,6 +89,11 @@ app/
 - Always handle `PermissionError` when accessing directories
 - Use `os.makedirs(path, exist_ok=True)` for directory creation
 - Check `os.path.exists()` before operations
+- **Every endpoint that touches the filesystem must resolve user-supplied
+  paths through `paths.resolve_within_nas(db, path)`** (realpath-boundary
+  check, raises 403 on escape). Never join `nas_root` with user input
+  directly; read the root via `paths.get_nas_root(db)`, not an inline
+  `Config("nas_root")` lookup
 
 ### HTMX ID Naming
 - Use predictable IDs for targeting (e.g., `tree-children-/path`)
