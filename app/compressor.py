@@ -99,7 +99,7 @@ class Compressor:
                     # Check cancellation
                     if task.id in self._cancelled:
                         task.status = CompressStatus.CANCELLED
-                        self._broadcast(task)
+                        self._broadcast_sync(task)
                         shutil.rmtree(tmp_dir, ignore_errors=True)
                         return
 
