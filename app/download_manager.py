@@ -267,22 +267,7 @@ class DownloadManager:
             else:
                 # YouTube download via yt-dlp
                 format_ext = task.format.lower()
-                outputtmpl = os.path.join(task.save_path, '%(title)s.%(ext)s')
-
-                ydl_opts = {
-                    'outtmpl': outputtmpl,
-                    'format': 'bestaudio/best',
-                    'nooverwrites': True,
-                    'nopostoverwrites': True,
-                    'postprocessors': [{
-                        'key': 'FFmpegExtractAudio',
-                        'preferredcodec': format_ext,
-                        'preferredquality': '192',
-                    }],
-                    'progress_hooks': [lambda d: self._progress_hook(task, d)],
-                    'quiet': True,
-                    'no_warnings': True,
-                }
+                ydl_opts = self._build_ydl_opts(task, format_ext)
 
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, self._download_with_ytdlp, task, ydl_opts)
@@ -304,6 +289,25 @@ class DownloadManager:
             if task.status != DownloadStatus.CANCELLED:
                 await self._fail_task(task, str(e))
     
+    def _build_ydl_opts(self, task: DownloadTask, format_ext: str) -> dict:
+        """Build yt-dlp options for a task (single video, no playlist expansion)."""
+        outputtmpl = os.path.join(task.save_path, '%(title)s.%(ext)s')
+        return {
+            'outtmpl': outputtmpl,
+            'format': 'bestaudio/best',
+            'nooverwrites': True,
+            'nopostoverwrites': True,
+            'no_playlist': True,  # a video URL with &list= params must not fetch the playlist
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': format_ext,
+                'preferredquality': '192',
+            }],
+            'progress_hooks': [lambda d: self._progress_hook(task, d)],
+            'quiet': True,
+            'no_warnings': True,
+        }
+
     def _download_with_ytdlp(self, task: DownloadTask, ydl_opts: dict):
         """Download using yt-dlp (runs in thread pool)"""
         try:
