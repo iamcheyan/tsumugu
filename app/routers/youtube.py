@@ -4,6 +4,7 @@ from ..database import get_db
 from ..models import Config, DownloadHistory
 from ..download_manager import download_manager, DownloadTask, DownloadStatus
 from ..compressor import compressor
+from ..paths import get_nas_root, resolve_within_nas
 from pydantic import BaseModel
 from typing import Optional
 import yt_dlp
@@ -102,25 +103,28 @@ def _resolve_save_path(save_path: str, db: Session) -> str:
 
     The browser works with NAS-relative paths like /Music. The downloader needs
     the mounted filesystem path, for example /tmp/nas_mnt/NAS/Music.
+    Confinement follows symlinks (realpath) so a symlink inside the NAS root
+    cannot redirect the download outside it.
     """
-    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
-    nas_root = str(nas_root_config.value) if nas_root_config else "/nas"
-    nas_root = os.path.abspath(nas_root)
-
     requested = (save_path or "/").strip()
-    if not requested or requested == "/":
-        resolved = nas_root
-    elif os.path.isabs(requested) and (
-        requested == nas_root or requested.startswith(nas_root + os.sep)
+    nas_root = get_nas_root(db)
+    abs_root = os.path.abspath(nas_root)
+    # Treat the input as pre-resolved only when it is an absolute path that
+    # already points inside the NAS root; everything else is NAS-relative
+    # (frontend paths like "/Music" are POSIX-absolute but app-relative).
+    if os.path.isabs(requested) and (
+        requested == abs_root or requested.startswith(abs_root + os.sep)
     ):
-        resolved = os.path.abspath(requested)
-    else:
-        resolved = os.path.abspath(os.path.join(nas_root, requested.lstrip("/")))
-
-    if os.path.commonpath([nas_root, resolved]) != nas_root:
-        raise HTTPException(status_code=400, detail="Save path must be inside the configured NAS root")
-
-    return resolved
+        # Pre-resolved absolute path: re-verify after following symlinks so a
+        # symlink inside the root cannot redirect the download outside it.
+        real_root = os.path.realpath(abs_root)
+        real_req = os.path.realpath(requested)
+        if real_req != real_root and not real_req.startswith(real_root + os.sep):
+            raise HTTPException(status_code=403, detail="Save path must be inside the configured NAS root")
+        return real_req
+    # NAS-relative (frontend paths like "/Music" are POSIX-absolute but
+    # app-relative); confined by resolve_within_nas.
+    return resolve_within_nas(db, requested)
 
 def is_valid_youtube_url(url: str) -> bool:
     """Validate YouTube URL format"""
