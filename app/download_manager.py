@@ -262,11 +262,12 @@ class DownloadManager:
                 if task.split_mode and task.download_type == "youtube":
                     await self._split_audio(task)
 
-                task.status = DownloadStatus.COMPLETED
-                task.progress = 100.0
-                task.completed_at = datetime.now()
-                await self._broadcast_progress(task)
-                self._update_history(task, DownloadStatus.COMPLETED.value, file_path=task.file_path)
+                if task.status != DownloadStatus.FAILED:
+                    task.status = DownloadStatus.COMPLETED
+                    task.progress = 100.0
+                    task.completed_at = datetime.now()
+                    await self._broadcast_progress(task)
+                    self._update_history(task, DownloadStatus.COMPLETED.value, file_path=task.file_path)
             
         except Exception as e:
             if task.status != DownloadStatus.CANCELLED:
@@ -418,18 +419,18 @@ class DownloadManager:
                 )
     
     async def _split_audio(self, task: DownloadTask):
-        """Split audio file if split_mode is set"""
+        """Split audio file if split_mode is set; failure marks the task FAILED"""
         try:
             # Update status to splitting
             task.status = DownloadStatus.SPLITTING
             await self._broadcast_progress(task)
-            
+
             # Find the downloaded audio file
             audio_file = self._find_downloaded_file(task)
             if not audio_file:
-                print(f"Warning: Could not find downloaded file for task {task.id}")
+                await self._fail_task(task, "Could not find downloaded file to split")
                 return
-            
+
             # Perform the split
             result = await audio_splitter.split_audio(
                 audio_file_path=audio_file,
@@ -437,14 +438,22 @@ class DownloadManager:
                 keep_original=task.keep_original,
                 output_dir=task.save_path
             )
-            
+
             if result.success:
-                print(f"Successfully split {len(result.files)} tracks from {audio_file}")
+                logger.info("Successfully split %d tracks from %s", len(result.files), audio_file)
             else:
-                print(f"Warning: Split failed: {result.error}")
-                
+                await self._fail_task(task, f"Split failed: {result.error}")
+
         except Exception as e:
-            print(f"Error during audio splitting: {e}")
+            await self._fail_task(task, f"Error during audio splitting: {e}")
+
+    async def _fail_task(self, task: DownloadTask, error: str) -> None:
+        """Mark a task FAILED, broadcast it, and write back to the DB."""
+        task.status = DownloadStatus.FAILED
+        task.error = error
+        task.completed_at = datetime.now()
+        await self._broadcast_progress(task)
+        self._update_history(task, DownloadStatus.FAILED.value)
     
     def _find_downloaded_file(self, task: DownloadTask) -> Optional[str]:
         """Find the downloaded audio file based on task info"""
