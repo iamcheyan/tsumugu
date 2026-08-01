@@ -2,7 +2,6 @@
 Folder Compressor - Background zip compression with real-time progress via WebSocket
 """
 import asyncio
-import json
 import os
 import shutil
 import tempfile
@@ -10,9 +9,11 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 
 from fastapi import WebSocket
+
+from .ws_broadcast import broadcast_sync, build_message
 
 
 class CompressStatus(str, Enum):
@@ -157,15 +158,9 @@ class Compressor:
                 pass
         self._cancelled.discard(task_id)
 
-    def _broadcast_sync(self, task: CompressTask):
-        """Broadcast progress (thread-safe via loop)."""
-        if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(self._broadcast(task), self._loop)
-
-    async def _broadcast(self, task: CompressTask):
-        """Send progress update to all connected WebSockets."""
-        data = {
-            "type": "compress_progress",
+    def _progress_fields(self, task: CompressTask) -> dict:
+        """Message payload matching what the frontend consumes for compress_progress."""
+        return {
             "task_id": task.id,
             "status": task.status.value,
             "progress": task.progress,
@@ -175,15 +170,14 @@ class Compressor:
             "zip_size": task.zip_size,
             "error": task.error,
         }
-        message = json.dumps(data)
-        disconnected = []
-        for ws in self.websockets:
-            try:
-                await ws.send_text(message)
-            except Exception:
-                disconnected.append(ws)
-        for ws in disconnected:
-            self.remove_websocket(ws)
+
+    def _broadcast_sync(self, task: CompressTask):
+        """Broadcast progress (thread-safe via loop)."""
+        broadcast_sync(
+            self.websockets,
+            self._loop,
+            build_message("compress_progress", **self._progress_fields(task)),
+        )
 
 
 # Global compressor instance
