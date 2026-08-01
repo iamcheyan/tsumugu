@@ -17,6 +17,18 @@ from .ws_broadcast import build_message, broadcast_serialized, broadcast_sync
 
 logger = logging.getLogger(__name__)
 
+# Matches modern wget --show-progress / --progress=bar:force:noscroll stderr lines:
+#   45%[=========>       ] 12,345,678 1.2M/s  eta 2m
+#  100%[===================>] 1,234,567 --.-KB/s    in 0.03s
+#  55%[====> ]
+# The bar segment and byte count are optional; percent is authoritative.
+WGET_PROGRESS_RE = re.compile(
+    r"^\s*(\d+)%\s*(?:\[[=>. ]+\]\s*)?"
+    r"(?:([\d.,]+)(?:\s+|$))?"
+    r"(?:([\d.]+\s*[KMG]?i?B?/s|--\.-KB/s)(?:\s+|$))?"
+    r"(?:eta\s+(.+)|in\s+(\S+))?\s*$"
+)
+
 
 class DownloadStatus(str, Enum):
     PENDING = "pending"
@@ -330,6 +342,9 @@ class DownloadManager:
             task.url,
         ]
 
+        env = os.environ.copy()
+        env["LC_ALL"] = "C"  # force C locale: '.' decimals, no ',' thousands separators
+
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -337,32 +352,27 @@ class DownloadManager:
                 stdout=subprocess.DEVNULL,
                 text=True,
                 bufsize=1,  # line-buffered
+                env=env,
             )
             task.process = proc
 
             if task.status == DownloadStatus.CANCELLED:
                 proc.terminate()
 
-            # Pattern:  "  55%  12.3MB/s  eta 10s"
-            # or:       " 100%  2.1MiB/s  in 5s"
-            progress_re = re.compile(
-                r"^\s*(\d+)%\s+([\d.]+\s*[KMG]i?B/s)\s+(?:eta\s+)?(.+)?$"
-            )
-
             for line in proc.stderr:
                 line = line.rstrip("\n\r")
-                m = progress_re.match(line)
+                m = WGET_PROGRESS_RE.match(line)
                 if m:
                     task.progress = float(m.group(1))
-                    task.speed = m.group(2).strip()
-                    eta_str = (m.group(3) or "").strip()
-                    if eta_str and eta_str != "in":
-                        task.eta = eta_str
-                    elif "in" in line:
-                        # " 100%  2.1MiB/s  in 5s"
-                        in_match = re.search(r"in\s+(\S+)\s*$", line)
-                        if in_match:
-                            task.eta = ""
+                    speed = m.group(3)
+                    if speed:
+                        task.speed = speed
+                    eta = m.group(4)
+                    if eta:
+                        task.eta = eta
+                    elif m.group(5):
+                        # "in 0.03s" -> download finished
+                        task.eta = ""
 
                     if self._loop and self._loop.is_running():
                         broadcast_sync(
