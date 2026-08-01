@@ -120,9 +120,9 @@ class Compressor:
                     arcname = os.path.relpath(file_path, os.path.dirname(task.folder_path))
                     try:
                         zf.write(file_path, arcname)
-                    except (PermissionError, OSError):
-                        # Skip unreadable files
-                        pass
+                    except (PermissionError, OSError) as e:
+                        # Skip unreadable files but surface them in the logs.
+                        logger.warning("Skipping unreadable file %s: %s", file_path, e)
 
                     processed += 1
                     task.processed_files = processed
@@ -142,6 +142,7 @@ class Compressor:
             self._broadcast_sync(task)
 
         except Exception as e:
+            logger.exception("Compression failed for task %s (%s)", task.id, task.folder_name)
             task.status = CompressStatus.FAILED
             task.completed_at = datetime.now()
             task.error = str(e)
@@ -180,7 +181,10 @@ class Compressor:
         if task.zip_path:
             tmp_dir = os.path.dirname(task.zip_path)
             if tmp_dir:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
+                try:
+                    shutil.rmtree(tmp_dir)
+                except OSError as e:
+                    logger.warning("Failed to remove temp dir %s: %s", tmp_dir, e)
 
     def _evict_expired_tasks(self):
         """Drop terminal tasks older than the retention window; cap the dict."""
