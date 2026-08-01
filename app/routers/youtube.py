@@ -13,8 +13,77 @@ import urllib.error
 from urllib.parse import urlparse, parse_qs, unquote
 import re
 import os
+import ipaddress
+import socket
 
 router = APIRouter(prefix="/api/youtube", tags=["youtube"])
+
+# Networks that must never be reachable through SSRF-prone endpoints
+# (loopback, RFC1918, link-local, CGNAT, multicast, reserved, IPv6 ULA/ll).
+_BLOCKED_NETWORKS: tuple = (
+    ipaddress.ip_network("0.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("198.18.0.0/15"),
+    ipaddress.ip_network("224.0.0.0/4"),
+    ipaddress.ip_network("240.0.0.0/4"),
+    ipaddress.ip_network("::/128"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+    ipaddress.ip_network("ff00::/8"),
+)
+
+
+def _is_public_ip(ip_str: str) -> bool:
+    """True when the address is a routable, non-internal IP."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    return not any(ip in net for net in _BLOCKED_NETWORKS)
+
+
+def _validate_direct_url(url: str) -> None:
+    """SSRF guard: reject http(s) URLs that point into non-public space.
+
+    Checks IP literals directly and resolves hostnames, verifying every
+    returned address is public. Raises HTTPException(400) when unsafe.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Only http/https URLs are supported")
+    host = parsed.hostname or ""
+    if not host:
+        raise HTTPException(status_code=400, detail="Invalid URL host")
+
+    try:
+        ip = ipaddress.ip_address(host)
+        if not _is_public_ip(str(ip)):
+            raise HTTPException(status_code=400, detail="URL points to a non-public address")
+        return
+    except ValueError:
+        pass  # hostname, resolve below
+
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        raise HTTPException(status_code=400, detail="Could not resolve host")
+    addresses = {info[4][0] for info in infos}
+    if not addresses or not all(_is_public_ip(a) for a in addresses):
+        raise HTTPException(status_code=400, detail="URL resolves to a non-public address")
+
+
+class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Re-validate every redirect hop so SSRF cannot be reached via redirects."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_direct_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 class DownloadRequest(BaseModel):
     url: str
@@ -129,7 +198,8 @@ def _fetch_url_headers(url: str) -> dict:
     try:
         req = urllib.request.Request(url, method="HEAD")
         req.add_header("User-Agent", "Mozilla/5.0")
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        opener = urllib.request.build_opener(_SafeRedirectHandler())
+        with opener.open(req, timeout=15) as resp:
             headers = resp.headers
             content_length = int(headers.get("Content-Length", 0))
             content_type = headers.get("Content-Type", "")
@@ -516,6 +586,9 @@ async def fetch_url_info(req: VideoInfo):
     if not _is_direct_url(url):
         raise HTTPException(status_code=400, detail="Invalid URL")
 
+    # SSRF guard: reject private / loopback / link-local targets
+    _validate_direct_url(url)
+
     info = _fetch_url_headers(url)
     return {
         "url": url,
@@ -536,6 +609,10 @@ async def start_download(download_request: DownloadRequest, db: Session = Depend
         download_type = "direct"
     elif download_type == "direct" and _is_youtube_url(download_request.url):
         download_type = "youtube"
+
+    # SSRF guard: direct downloads must target public addresses
+    if download_type == "direct":
+        _validate_direct_url(download_request.url)
 
     # For direct downloads, extract filename from URL
     title = download_request.title
