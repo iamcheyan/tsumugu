@@ -2,6 +2,7 @@
 Download Manager - Handles yt-dlp + wget download queue with real-time progress via WebSocket
 """
 import asyncio
+import logging
 import os
 import re
 import subprocess
@@ -13,6 +14,8 @@ import yt_dlp
 from fastapi import WebSocket
 from .audio_splitter import audio_splitter
 from .ws_broadcast import build_message, broadcast_serialized, broadcast_sync
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadStatus(str, Enum):
@@ -43,6 +46,8 @@ class DownloadTask:
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     download_type: str = "youtube"  # "youtube" or "direct"
+    process: Optional[subprocess.Popen] = None
+    file_path: Optional[str] = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -101,7 +106,9 @@ class DownloadManager:
             task = self.tasks[task_id]
             if task.status in [DownloadStatus.PENDING, DownloadStatus.DOWNLOADING]:
                 task.status = DownloadStatus.CANCELLED
+                task.completed_at = datetime.now()
                 await self._broadcast_progress(task)
+                self._update_history(task, DownloadStatus.CANCELLED.value)
                 return True
         return False
     
@@ -113,6 +120,29 @@ class DownloadManager:
         """Get all download tasks"""
         return list(self.tasks.values())
     
+    def _update_history(self, task: DownloadTask, status: str, file_path: Optional[str] = None) -> None:
+        """Write back download status to the DownloadHistory DB row.
+
+        Uses a short-lived session that is always closed; never held across awaits.
+        """
+        from .database import SessionLocal
+        from .models import DownloadHistory
+
+        db = SessionLocal()
+        try:
+            row = db.query(DownloadHistory).filter(DownloadHistory.id == task.id).first()
+            if row is None:
+                logger.warning("No DownloadHistory row for task %s; skipping writeback", task.id)
+                return
+            row.status = status
+            if file_path is not None:
+                row.file_path = file_path
+            db.commit()
+        except Exception:
+            logger.exception("Failed to update DownloadHistory for task %s", task.id)
+        finally:
+            db.close()
+
     def get_queue_status(self) -> Dict[str, Any]:
         """Get queue status summary"""
         return {
@@ -169,15 +199,18 @@ class DownloadManager:
                 task.status = DownloadStatus.FAILED
                 task.error = f"Permission denied: Cannot write to '{task.save_path}'"
                 await self._broadcast_progress(task)
+                self._update_history(task, DownloadStatus.FAILED.value)
                 return
             except OSError as e:
                 task.status = DownloadStatus.FAILED
                 task.error = f"Cannot create directory: {str(e)}"
                 await self._broadcast_progress(task)
+                self._update_history(task, DownloadStatus.FAILED.value)
                 return
 
             task.status = DownloadStatus.DOWNLOADING
             await self._broadcast_progress(task)
+            self._update_history(task, DownloadStatus.DOWNLOADING.value)
 
             if task.download_type == "direct":
                 # Direct file download via wget
@@ -215,11 +248,13 @@ class DownloadManager:
                 task.progress = 100.0
                 task.completed_at = datetime.now()
                 await self._broadcast_progress(task)
+                self._update_history(task, DownloadStatus.COMPLETED.value, file_path=task.file_path)
             
         except Exception as e:
             task.status = DownloadStatus.FAILED
             task.error = str(e)
             await self._broadcast_progress(task)
+            self._update_history(task, DownloadStatus.FAILED.value)
     
     def _download_with_ytdlp(self, task: DownloadTask, ydl_opts: dict):
         """Download using yt-dlp (runs in thread pool)"""
