@@ -44,10 +44,6 @@ _KNOWN_PROVIDER_URLS = {
     "google": "https://generativelanguage.googleapis.com/v1beta",
 }
 
-_ANTHROPIC_KNOWN_URLS = {
-    "mimo-anthropic": "https://api.anthropic.com",
-}
-
 # Default models per provider (used when config doesn't specify one)
 _KNOWN_MODELS = {
     "volcengine": "doubao-pro-32k",
@@ -102,7 +98,7 @@ def get_api_config() -> tuple:
         # Anthropic-type providers
         if "anthropic" in api_type.lower() or "claude" in provider_key.lower():
             if not base_url:
-                base_url = _ANTHROPIC_KNOWN_URLS.get(provider_key, "https://api.anthropic.com")
+                base_url = "https://api.anthropic.com"
             if not model:
                 model = "claude-3-haiku-20240307"
             return ("anthropic", api_key, base_url, model)

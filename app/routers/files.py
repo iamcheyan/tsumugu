@@ -1155,7 +1155,6 @@ async def set_folder_tag(
 
 _AUDIO_EXT = AUDIO_EXTENSIONS | {".opus"}
 _IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tiff"}
-_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tiff"}
 _VIDEO_EXT = {".mp4", ".avi", ".mkv", ".mov", ".webm"}
 _ALL_KNOWN = _AUDIO_EXT | _IMAGE_EXT | _VIDEO_EXT | {
     ".zip", ".gz", ".rar", ".7z", ".mid", ".midi",
