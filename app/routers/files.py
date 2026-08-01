@@ -980,7 +980,6 @@ async def get_file_tags(
     return {"success": True, "tags": tags}
 
 
-@router.post("/set-tag")
 def _update_file_index_tag(nas_root: str, file_path: str, tag: str | None):
     """Update a file's tag in file_index.json (create if not exists)."""
     import json as _json
@@ -1028,6 +1027,7 @@ def _update_file_index_tag(nas_root: str, file_path: str, tag: str | None):
         print(f"[file_index] Failed to write: {e}")
 
 
+@router.post("/set-tag")
 async def set_file_tag(
     request: Request,
     db: Session = Depends(get_db)
@@ -1075,6 +1075,94 @@ async def set_file_tag(
     _update_file_index_tag(nas_root, file_path, tag)
 
     return {"success": True, "message": f"Tag updated to '{tag or 'none'}'"}
+
+
+@router.post("/set-folder-tag")
+async def set_folder_tag(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Set a tag on all audio files inside a folder (recursively)."""
+    body = await request.json()
+    folder_path = body.get("path", "")
+    tag = body.get("tag", "")  # "music", "podcast", or "" to clear
+
+    if not folder_path:
+        return {"success": False, "message": "No folder path provided"}
+
+    # Normalize tag
+    if tag and tag not in ("music", "podcast"):
+        return {"success": False, "message": "Invalid tag. Use 'music', 'podcast', or ''."}
+    tag = tag or None
+
+    # Get NAS root
+    nas_root_config = db.query(Config).filter(Config.key == "nas_root").first()
+    nas_root: str = str(nas_root_config.value) if nas_root_config else "/nas"
+
+    full_path = os.path.join(nas_root, folder_path.lstrip('/'))
+    if not os.path.exists(full_path) or not os.path.isdir(full_path):
+        return {"success": False, "message": "Folder not found"}
+
+    # Recursively find all audio files
+    tagged_count = 0
+    errors = []
+
+    for root, dirs, files in os.walk(full_path):
+        for fname in files:
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in AUDIO_EXTENSIONS:
+                continue
+
+            # Build relative path from NAS root
+            abs_path = os.path.join(root, fname)
+            rel_path = "/" + os.path.relpath(abs_path, nas_root)
+
+            try:
+                file_size = os.path.getsize(abs_path)
+
+                # Update database
+                meta = db.query(FileMetadata).filter(FileMetadata.file_path == rel_path).first()
+                if meta:
+                    meta.tag = tag
+                else:
+                    meta = FileMetadata(
+                        file_path=rel_path,
+                        file_name=fname,
+                        file_size=file_size,
+                        file_type="audio",
+                        tag=tag,
+                    )
+                    db.add(meta)
+
+                # Update file_index.json
+                _update_file_index_tag(nas_root, rel_path, tag)
+                tagged_count += 1
+            except Exception as e:
+                errors.append({"path": rel_path, "error": str(e)})
+
+    # Also save tag on the folder itself for display purposes
+    folder_meta = db.query(FileMetadata).filter(FileMetadata.file_path == folder_path).first()
+    if folder_meta:
+        folder_meta.tag = tag
+    else:
+        folder_meta = FileMetadata(
+            file_path=folder_path,
+            file_name=os.path.basename(folder_path.rstrip('/')),
+            file_size=0,
+            file_type="folder",
+            tag=tag,
+        )
+        db.add(folder_meta)
+
+    db.commit()
+
+    tag_label = tag or "none"
+    return {
+        "success": True,
+        "tagged_count": tagged_count,
+        "errors": errors,
+        "message": f"Tagged {tagged_count} file(s) in folder as '{tag_label}'"
+    }
 
 
 # ── File-type detection for missing extensions ──────────────────────

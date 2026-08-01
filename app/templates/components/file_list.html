@@ -100,7 +100,23 @@
                     <td class="text-end text-muted small d-none d-md-table-cell text-nowrap">{{ file.modified }}</td>
                     <td class="d-none d-lg-table-cell">
                         {% if file.type == 'folder' %}
-                            <span class="badge bg-secondary">Folder</span>
+                            <div class="tag-badge-wrapper position-relative d-inline-block">
+                                {% if file.tag == 'music' %}
+                                    <span class="badge bg-primary tag-badge" style="cursor:pointer;" data-path="{{ file.path }}" data-type="folder" data-current="music"><i class="bi bi-music-note-beamed me-1"></i>Music</span>
+                                {% elif file.tag == 'podcast' %}
+                                    <span class="badge bg-warning text-dark tag-badge" style="cursor:pointer;" data-path="{{ file.path }}" data-type="folder" data-current="podcast"><i class="bi bi-mic me-1"></i>Podcast</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Folder</span>
+                                {% endif %}
+                                {% if file.tag %}
+                                <div class="tag-popup" style="display:none; position:absolute; top:100%; left:0; z-index:100; background:var(--bs-body-bg); border:1px solid var(--bs-border-color); border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.25); padding:4px; min-width:120px; margin-top:4px;">
+                                    <button class="dropdown-item d-flex align-items-center gap-2 py-1 px-2" style="font-size:0.78rem;" onclick="setFolderTag('{{ file.path }}', 'music')"><i class="bi bi-music-note-beamed text-primary"></i>Music</button>
+                                    <button class="dropdown-item d-flex align-items-center gap-2 py-1 px-2" style="font-size:0.78rem;" onclick="setFolderTag('{{ file.path }}', 'podcast')"><i class="bi bi-mic text-warning"></i>Podcast</button>
+                                    <hr class="my-1" style="border-color:var(--bs-border-color);">
+                                    <button class="dropdown-item d-flex align-items-center gap-2 py-1 px-2" style="font-size:0.78rem;" onclick="setFolderTag('{{ file.path }}', '')"><i class="bi bi-x-circle text-secondary"></i>Clear</button>
+                                </div>
+                                {% endif %}
+                            </div>
                         {% elif file.type == 'audio' %}
                             <div class="tag-badge-wrapper position-relative d-inline-block">
                                 {% if file.tag == 'music' %}
@@ -340,26 +356,30 @@
         hideContextMenu();
         // Use all selected files, or just the right-clicked file
         const checked = document.querySelectorAll('.file-checkbox:checked');
-        let paths = [];
+        let items = [];
         if (checked.length > 0) {
-            paths = Array.from(checked).map(cb => cb.dataset.path);
+            items = Array.from(checked).map(cb => ({
+                path: cb.dataset.path,
+                type: cb.closest('tr').dataset.type
+            }));
         } else if (contextMenuTarget) {
-            paths = [contextMenuTarget];
+            items = [{ path: contextMenuTarget, type: contextMenuTargetType }];
         }
-        if (paths.length === 0) return;
+        if (items.length === 0) return;
 
         let done = 0;
-        paths.forEach(p => {
-            fetch('/api/files/set-tag', {
+        items.forEach(item => {
+            const endpoint = item.type === 'folder' ? '/api/files/set-folder-tag' : '/api/files/set-tag';
+            fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: p, tag: tag })
+                body: JSON.stringify({ path: item.path, tag: tag })
             }).then(() => {
                 done++;
-                if (done === paths.length) refreshFileList();
+                if (done === items.length) refreshFileList();
             }).catch(() => {
                 done++;
-                if (done === paths.length) refreshFileList();
+                if (done === items.length) refreshFileList();
             });
         });
     }
@@ -471,6 +491,26 @@
         .then(data => {
             if (data.success) refreshFileList();
             else showToast(data.message || 'Failed to update tag', 'error');
+        })
+        .catch(err => showToast('Error: ' + err.message, 'error'));
+    }
+
+    function setFolderTag(path, tag) {
+        // Hide all popups
+        document.querySelectorAll('.tag-popup').forEach(p => p.style.display = 'none');
+        fetch('/api/files/set-folder-tag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path, tag: tag })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showToast(data.message, 'success');
+                refreshFileList();
+            } else {
+                showToast(data.message || 'Failed to update folder tag', 'error');
+            }
         })
         .catch(err => showToast('Error: ' + err.message, 'error'));
     }

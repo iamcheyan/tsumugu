@@ -61,9 +61,24 @@ def is_valid_youtube_url(url: str) -> bool:
         r'^(https?://)?(www\.)?youtube\.com/embed/[\w-]+',
         r'^(https?://)?(www\.)?youtube\.com/v/[\w-]+',
         r'^(https?://)?youtu\.be/[\w-]+',
-        r'^(https?://)?(www\.)?youtube\.com/shorts/[\w-]+'
+        r'^(https?://)?(www\.)?youtube\.com/shorts/[\w-]+',
+        r'^(https?://)?(www\.)?youtube\.com/@[\w.-]+',
+        r'^(https?://)?(www\.)?youtube\.com/channel/[\w-]+',
+        r'^(https?://)?(www\.)?youtube\.com/c/[\w.-]+',
+        r'^(https?://)?(www\.)?youtube\.com/user/[\w.-]+',
     ]
     return any(re.match(pattern, url) for pattern in youtube_patterns)
+
+
+def is_channel_url(url: str) -> bool:
+    """Check if URL is a YouTube channel URL"""
+    channel_patterns = [
+        r'^(https?://)?(www\.)?youtube\.com/@[\w.-]+',
+        r'^(https?://)?(www\.)?youtube\.com/channel/[\w-]+',
+        r'^(https?://)?(www\.)?youtube\.com/c/[\w.-]+',
+        r'^(https?://)?(www\.)?youtube\.com/user/[\w.-]+',
+    ]
+    return any(re.match(pattern, url) for pattern in channel_patterns)
 
 def extract_video_id(url: str) -> Optional[str]:
     """Extract video ID from YouTube URL"""
@@ -277,6 +292,116 @@ async def get_playlist_info(video_info: VideoInfo):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch playlist info: {str(e)}")
+
+async def fetch_channel_info_async(url: str) -> dict:
+    """Fetch channel info using yt-dlp subprocess (flat-playlist JSON)"""
+    def _fetch_channel_info():
+        import subprocess
+        import json as _json
+
+        # Use subprocess for faster flat-playlist enumeration
+        cmd = [
+            "yt-dlp",
+            "--flat-playlist",
+            "--print", "%(id)s\t%(title)s\t%(duration)s\t%(thumbnail)s",
+            "--no-warnings",
+            url,
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=120
+            )
+            if result.returncode != 0:
+                raise Exception(f"yt-dlp error: {result.stderr.strip() or 'unknown error'}")
+
+            entries = []
+            for line in result.stdout.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split("\t", 3)
+                if len(parts) >= 3:
+                    vid_id = parts[0]
+                    title = parts[1]
+                    duration = float(parts[2]) if parts[2] and parts[2] != "NA" else 0
+                    thumbnail = parts[3] if len(parts) > 3 and parts[3] != "NA" else ""
+                    entries.append({
+                        "id": vid_id,
+                        "title": title,
+                        "url": f"https://www.youtube.com/watch?v={vid_id}",
+                        "duration": duration,
+                        "thumbnail": thumbnail,
+                    })
+
+            # Get channel metadata separately
+            meta_cmd = [
+                "yt-dlp",
+                "--print", "%(channel)s|||%(uploader)s|||%(thumbnail)s",
+                "--no-warnings",
+                "--playlist-items", "1",
+                url,
+            ]
+            meta_result = subprocess.run(meta_cmd, capture_output=True, text=True, timeout=30)
+            channel_name = "Unknown Channel"
+            uploader = "Unknown"
+            channel_thumb = ""
+            if meta_result.returncode == 0 and meta_result.stdout.strip():
+                meta_parts = meta_result.stdout.strip().split("|||")
+                if len(meta_parts) >= 1 and meta_parts[0] and meta_parts[0] != "NA":
+                    channel_name = meta_parts[0]
+                if len(meta_parts) >= 2 and meta_parts[1] and meta_parts[1] != "NA":
+                    uploader = meta_parts[1]
+                if len(meta_parts) >= 3 and meta_parts[2] and meta_parts[2] != "NA":
+                    channel_thumb = meta_parts[2]
+
+            if entries:
+                return {
+                    "title": channel_name,
+                    "uploader": uploader,
+                    "thumbnail": channel_thumb or (entries[0].get("thumbnail", "") if entries else ""),
+                    "entry_count": len(entries),
+                    "entries": entries,
+                }
+
+        except subprocess.TimeoutExpired:
+            raise Exception("Channel info fetch timed out")
+        except Exception as e:
+            raise Exception(f"Error fetching channel info: {str(e)}")
+
+        return None
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _fetch_channel_info)
+
+
+@router.post("/channel-info")
+async def get_channel_info(video_info: VideoInfo):
+    """Fetch channel metadata and video list"""
+    url = video_info.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+
+    if not is_channel_url(url):
+        raise HTTPException(status_code=400, detail="Not a valid YouTube channel URL")
+
+    try:
+        info = await fetch_channel_info_async(url)
+        if not info:
+            raise HTTPException(status_code=404, detail="Channel not found or unavailable")
+
+        return {
+            "url": url,
+            "title": info['title'],
+            "uploader": info['uploader'],
+            "thumbnail": info['thumbnail'],
+            "entry_count": info['entry_count'],
+            "entries": info['entries']
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch channel info: {str(e)}")
+
 
 @router.post("/download-playlist")
 async def download_playlist(download_request: DownloadRequest, db: Session = Depends(get_db)):

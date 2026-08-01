@@ -192,6 +192,8 @@ class DownloadManager:
                 ydl_opts = {
                     'outtmpl': outputtmpl,
                     'format': 'bestaudio/best',
+                    'nooverwrites': True,
+                    'nopostoverwrites': True,
                     'postprocessors': [{
                         'key': 'FFmpegExtractAudio',
                         'preferredcodec': format_ext,

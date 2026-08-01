@@ -180,6 +180,38 @@
         <!-- Hidden Save Path (synced from visible input in confirmDownload) -->
         <input type="hidden" id="save-location" name="save_path" value="/Music">
 
+        <!-- Channel Preview Card (shown after parsing channel URL) -->
+        <div id="channel-preview" class="channel-preview mt-2" style="display: none; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 8px; padding: 12px;">
+            <div class="d-flex gap-3 align-items-center flex-wrap mb-2">
+                <!-- Channel Thumbnail -->
+                <div class="position-relative" style="width: 64px; height: 64px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: #000;">
+                    <img id="channel-thumbnail" src="" alt="" class="w-100 h-100" style="object-fit: cover;">
+                </div>
+                <!-- Channel Info -->
+                <div class="flex-grow-1" style="min-width: 150px; font-size: 0.8rem;">
+                    <div id="channel-title" class="fw-semibold mb-1" style="font-size: 0.9rem;"></div>
+                    <div class="text-muted"><span id="channel-video-count"></span></div>
+                </div>
+                <!-- Actions -->
+                <div class="d-flex flex-column gap-1" style="flex-shrink: 0;">
+                    <button type="button" class="btn btn-primary btn-sm py-1 px-3" style="font-size: 0.8rem;" onclick="downloadSelectedChannelVideos()">
+                        <i class="bi bi-download me-1"></i>Download Selected
+                    </button>
+                    <div class="d-flex align-items-center gap-2" style="font-size: 0.75rem;">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0" onclick="toggleSelectAllChannelVideos()" style="font-size: 0.7rem;">
+                            <i class="bi bi-check-all me-1"></i>Select All
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0" onclick="cancelChannelPreview()" style="font-size: 0.7rem;">
+                            <i class="bi bi-x-lg me-1"></i>Cancel
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <!-- Video List -->
+            <div id="channel-video-list" class="d-flex flex-column gap-1" style="max-height: 300px; overflow-y: auto; font-size: 0.8rem;">
+            </div>
+        </div>
+
         <!-- Error Message -->
         <div id="video-error" class="alert alert-danger mt-2 mb-0 py-2" style="display: none !important;">
             <div class="d-flex justify-content-between align-items-center">
@@ -409,6 +441,7 @@
         hidePreview();
         hideError();
         hidePlaylistPreview();
+        hideChannelPreview();
 
         if (!url) {
             addLog('Please enter a URL', 'error');
@@ -425,6 +458,9 @@
 
         addLog('Validating YouTube URL format...', 'loading');
 
+        // Check if it's a channel URL
+        const isChannel = /^https?:\/\/(www\.)?youtube\.com\/(@[\w.-]+|channel\/[\w-]+|c\/[\w.-]+|user\/[\w.-]+)/i.test(url);
+
         // Validate YouTube URL format
         const youtubePatterns = [
             /^(https?:\/\/)?(www\.)?youtube\.com\/watch\?v=[\w-]+/,
@@ -433,39 +469,51 @@
             /^(https?:\/\/)?(www\.)?youtube\.com\/v\/[\w-]+/,
             /^(https?:\/\/)?youtu\.be\/[\w-]+/,
             /^(https?:\/\/)?(www\.)?youtube\.com\/shorts\/[\w-]+/,
-            /^(https?:\/\/)?(www\.)?youtube\.com\/playlist\?list=[\w-]+/
+            /^(https?:\/\/)?(www\.)?youtube\.com\/playlist\?list=[\w-]+/,
+            /^(https?:\/\/)?(www\.)?youtube\.com\/@[\w.-]+/,
+            /^(https?:\/\/)?(www\.)?youtube\.com\/channel\/[\w-]+/,
+            /^(https?:\/\/)?(www\.)?youtube\.com\/c\/[\w.-]+/,
+            /^(https?:\/\/)?(www\.)?youtube\.com\/user\/[\w.-]+/,
         ];
         const isValid = youtubePatterns.some(pattern => pattern.test(url));
 
         if (!isValid) {
             addLog('Invalid YouTube URL format', 'error');
-            addLog('Supported: youtube.com/watch, youtu.be, youtube.com/shorts, youtube.com/playlist', 'warning');
+            addLog('Supported: youtube.com/watch, youtu.be, youtube.com/shorts, youtube.com/playlist, youtube.com/@channel', 'warning');
             return;
         }
 
         addLog('URL format valid ✓', 'success');
-
-        // Check if it's a real playlist URL (exclude radio/mix RD-prefixed lists)
-        const listMatch = url.match(/[?&]list=([\w-]+)/);
-        const isPlaylist = listMatch && !listMatch[1].startsWith('RD');
 
         // Show loading state on Parse button
         const parseBtn = document.getElementById('parse-btn');
         parseBtn.disabled = true;
         parseBtn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Parsing...';
 
-        if (isPlaylist) {
-            addLog('Detected playlist URL, fetching playlist info...', 'loading');
-            fetchPlaylistInfo(url).finally(() => {
+        if (isChannel) {
+            addLog('Detected channel URL, fetching channel info...', 'loading');
+            fetchChannelInfo(url).finally(() => {
                 parseBtn.disabled = false;
                 parseBtn.innerHTML = '<i class="bi bi-search me-1"></i>Parse';
             });
         } else {
-            // Fetch single video info
-            fetchVideoInfo(url).finally(() => {
-                parseBtn.disabled = false;
-                parseBtn.innerHTML = '<i class="bi bi-search me-1"></i>Parse';
-            });
+            // Check if it's a real playlist URL (exclude radio/mix RD-prefixed lists)
+            const listMatch = url.match(/[?&]list=([\w-]+)/);
+            const isPlaylist = listMatch && !listMatch[1].startsWith('RD');
+
+            if (isPlaylist) {
+                addLog('Detected playlist URL, fetching playlist info...', 'loading');
+                fetchPlaylistInfo(url).finally(() => {
+                    parseBtn.disabled = false;
+                    parseBtn.innerHTML = '<i class="bi bi-search me-1"></i>Parse';
+                });
+            } else {
+                // Fetch single video info
+                fetchVideoInfo(url).finally(() => {
+                    parseBtn.disabled = false;
+                    parseBtn.innerHTML = '<i class="bi bi-search me-1"></i>Parse';
+                });
+            }
         }
     }
 
@@ -566,6 +614,166 @@
             preview.dataset.isPlaylist = '';
             preview.dataset.playlistData = '';
         }
+    }
+
+    // ==================== Channel URL ====================
+    async function fetchChannelInfo(url) {
+        addLog('Connecting to YouTube...', 'loading');
+
+        try {
+            addLog('Fetching channel metadata...', 'loading');
+            const response = await fetch('/api/youtube/channel-info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: url })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to fetch channel info');
+            }
+
+            addLog('Channel info received ✓', 'success');
+            const data = await response.json();
+
+            addLog(`Channel: ${data.title}`, 'success');
+            addLog(`Total videos: ${data.entry_count}`, 'info');
+
+            saveUrlToHistory(url, data.title);
+            showChannelPreview(data);
+
+        } catch (error) {
+            addLog(`Error: ${error.message}`, 'error');
+            showError(error.message);
+            addFailedTask(url, 'Channel', error.message);
+        }
+    }
+
+    function showChannelPreview(data) {
+        const preview = document.getElementById('channel-preview');
+        const thumbnail = document.getElementById('channel-thumbnail');
+        const title = document.getElementById('channel-title');
+        const videoCount = document.getElementById('channel-video-count');
+        const videoList = document.getElementById('channel-video-list');
+
+        // Set channel info
+        thumbnail.src = data.thumbnail || '';
+        thumbnail.onerror = function() {
+            this.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect fill="%23404040" width="64" height="64" rx="32"/><text fill="%23b0b0b0" font-family="sans-serif" font-size="20" x="50%" y="50%" text-anchor="middle" dy=".3em">♪</text></svg>';
+        };
+        title.textContent = data.title || 'Unknown Channel';
+        videoCount.textContent = data.entry_count + ' videos';
+
+        // Store channel data
+        preview.dataset.channelData = JSON.stringify(data);
+        preview.dataset.channelUrl = data.url;
+
+        // Render video list with checkboxes
+        renderChannelVideoList(data.entries);
+
+        preview.style.display = 'block';
+    }
+
+    function renderChannelVideoList(entries) {
+        const container = document.getElementById('channel-video-list');
+        if (!entries || entries.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-3">No videos found</div>';
+            return;
+        }
+
+        container.innerHTML = entries.map((entry, idx) => {
+            const duration = entry.duration ? formatDuration(entry.duration) : '--:--';
+            const thumbSrc = entry.thumbnail || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="45" viewBox="0 0 80 45"><rect fill="%23404040" width="80" height="45"/></svg>';
+            return `<div class="d-flex align-items-center gap-2 p-1 rounded channel-video-item" style="background: var(--bs-tertiary-bg);">
+                <input type="checkbox" class="form-check-input channel-video-checkbox" data-index="${idx}" data-url="${(entry.url || '').replace(/"/g, '&quot;')}" data-title="${(entry.title || '').replace(/"/g, '&quot;')}" checked style="flex-shrink: 0;">
+                <div style="width: 80px; height: 45px; border-radius: 4px; overflow: hidden; flex-shrink: 0; background: #000;">
+                    <img src="${thumbSrc}" alt="" style="width: 100%; height: 100%; object-fit: cover;">
+                </div>
+                <div class="flex-grow-1 text-truncate" style="font-size: 0.8rem;">${escapeHtml(entry.title || 'Unknown')}</div>
+                <span class="text-muted" style="font-size: 0.75rem; flex-shrink: 0;">${duration}</span>
+            </div>`;
+        }).join('');
+    }
+
+    function toggleSelectAllChannelVideos() {
+        const checkboxes = document.querySelectorAll('.channel-video-checkbox');
+        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+        checkboxes.forEach(cb => cb.checked = !allChecked);
+    }
+
+    function hideChannelPreview() {
+        const preview = document.getElementById('channel-preview');
+        if (preview) {
+            preview.style.display = 'none';
+            preview.dataset.channelData = '';
+            preview.dataset.channelUrl = '';
+        }
+    }
+
+    function cancelChannelPreview() {
+        hideChannelPreview();
+        document.getElementById('youtube-url').value = '';
+        document.getElementById('parse-log').style.display = 'none';
+        clearLog();
+    }
+
+    function downloadSelectedChannelVideos() {
+        const preview = document.getElementById('channel-preview');
+        const channelData = JSON.parse(preview.dataset.channelData || '{}');
+        const channelUrl = preview.dataset.channelUrl || '';
+        const savePath = document.getElementById('save-path-input').value || '/Music';
+
+        // Get selected videos
+        const checkboxes = document.querySelectorAll('.channel-video-checkbox:checked');
+        if (checkboxes.length === 0) {
+            showToast('Please select at least one video', 'warning');
+            return;
+        }
+
+        const selectedEntries = Array.from(checkboxes).map(cb => ({
+            url: cb.dataset.url,
+            title: cb.dataset.title
+        }));
+
+        addLog(`Starting download of ${selectedEntries.length} videos from ${channelData.title}...`, 'loading');
+
+        // Download each selected video with channel folder
+        const channelFolder = channelData.title.replace(/[\/\\:*?"<>|]/g, '_');
+        const channelSavePath = savePath + '/' + channelFolder;
+
+        let completed = 0;
+        let errors = 0;
+
+        selectedEntries.forEach((entry, idx) => {
+            fetch('/api/youtube/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: entry.url,
+                    title: entry.title,
+                    format: 'mp3',
+                    save_path: channelSavePath,
+                    download_type: 'youtube'
+                })
+            }).then(r => {
+                if (!r.ok) throw new Error('Failed');
+                completed++;
+            }).catch(() => {
+                errors++;
+            }).finally(() => {
+                if (completed + errors === selectedEntries.length) {
+                    if (errors > 0) {
+                        addLog(`Started ${completed} downloads, ${errors} failed`, 'warning');
+                    } else {
+                        addLog(`All ${completed} videos added to download queue ✓`, 'success');
+                    }
+                    showDownloadQueue();
+                }
+            });
+        });
+
+        hideChannelPreview();
+        document.getElementById('youtube-url').value = '';
     }
 
     async function fetchVideoInfo(url) {
