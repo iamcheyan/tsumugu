@@ -9,9 +9,8 @@ import hashlib
 import json
 import os
 import time
-from pathlib import Path
 
-# Cache: {full_path: {"md5": str, "mtime": float, "size": int}}
+# Cache: {full_path: {"md5": str, "ino": int, "mtime": float, "size": int}}
 _md5_cache: dict[str, dict] = {}
 
 INDEX_FILENAME = "file_index.json"
@@ -32,6 +31,12 @@ def scan_folder(nas_root: str, folder_path: str) -> list[dict]:
     Uses mtime+size cache to skip unchanged files.
     """
     full_dir = os.path.join(nas_root, folder_path.lstrip("/"))
+    # Confine: the folder must resolve inside the NAS root (sync folders are
+    # user-supplied; "../" or symlink escapes must not index arbitrary files).
+    real_nas = os.path.realpath(nas_root)
+    real_dir = os.path.realpath(full_dir)
+    if real_dir != real_nas and not real_dir.startswith(real_nas + os.sep):
+        return []
     if not os.path.isdir(full_dir):
         return []
 
@@ -47,14 +52,27 @@ def scan_folder(nas_root: str, folder_path: str) -> list[dict]:
                 stat = os.stat(full_path)
                 size = stat.st_size
                 mtime = stat.st_mtime
+                ino = stat.st_ino
 
-                # Check cache: if mtime and size unchanged, reuse MD5
+                # Check cache: if inode, mtime and size are unchanged, reuse MD5.
+                # Keying on inode too catches files replaced in-place that reuse
+                # an old size+mtime (e.g. rsync --times copies).
                 cached = _md5_cache.get(full_path)
-                if cached and cached["mtime"] == mtime and cached["size"] == size:
+                if (
+                    cached
+                    and cached["ino"] == ino
+                    and cached["mtime"] == mtime
+                    and cached["size"] == size
+                ):
                     md5 = cached["md5"]
                 else:
                     md5 = compute_md5(full_path)
-                    _md5_cache[full_path] = {"md5": md5, "mtime": mtime, "size": size}
+                    _md5_cache[full_path] = {
+                        "md5": md5,
+                        "ino": ino,
+                        "mtime": mtime,
+                        "size": size,
+                    }
 
                 # Relative path from NAS root
                 rel_path = "/" + os.path.relpath(full_path, nas_root)
@@ -91,14 +109,18 @@ def generate_index(nas_root: str, sync_folders: list, db_session=None) -> dict:
             continue
         files = scan_folder(nas_root, folder.path)
 
-        # Enrich with tags from database
-        if db_session:
+        # Enrich with tags from database — one batched query per folder
+        # instead of N individual lookups.
+        if db_session and files:
+            paths = [f["path"] for f in files]
+            metas = db_session.query(FileMetadata).filter(
+                FileMetadata.file_path.in_(paths)
+            ).all()
+            tag_by_path = {m.file_path: m.tag for m in metas}
             for f in files:
-                meta = db_session.query(FileMetadata).filter(
-                    FileMetadata.file_path == f["path"]
-                ).first()
-                if meta and meta.tag:
-                    f["tag"] = meta.tag
+                tag = tag_by_path.get(f["path"])
+                if tag:
+                    f["tag"] = tag
 
         all_files.extend(files)
 

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -7,8 +7,9 @@ import os
 import time
 
 from ..database import get_db
-from ..models import Config, SyncFolder
+from ..models import SyncFolder
 from .. import sync_service
+from ..paths import get_nas_root, resolve_within_nas
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 
@@ -16,11 +17,6 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 class AddFolderRequest(BaseModel):
     path: str
     name: Optional[str] = None
-
-
-def _get_nas_root(db: Session) -> str:
-    config = db.query(Config).filter(Config.key == "nas_root").first()
-    return str(config.value) if config else "/nas"
 
 
 # ── File Index (for device download) ────────────────────────────────
@@ -31,7 +27,7 @@ async def get_file_index(force: bool = False, db: Session = Depends(get_db)):
     Download the file index JSON.
     Other devices call this endpoint to sync.
     """
-    nas_root = _get_nas_root(db)
+    nas_root = get_nas_root(db)
     folders = db.query(SyncFolder).filter(SyncFolder.enabled == True).all()
 
     index = sync_service.get_index(nas_root, folders, db, force=force)
@@ -41,7 +37,7 @@ async def get_file_index(force: bool = False, db: Session = Depends(get_db)):
 @router.get("/file-index/download")
 async def download_file_index(db: Session = Depends(get_db)):
     """Download file_index.json as a file."""
-    nas_root = _get_nas_root(db)
+    nas_root = get_nas_root(db)
     folders = db.query(SyncFolder).filter(SyncFolder.enabled == True).all()
 
     index = sync_service.get_index(nas_root, folders, db)
@@ -78,11 +74,11 @@ async def list_sync_folders(db: Session = Depends(get_db)):
 @router.post("/folders")
 async def add_sync_folder(req: AddFolderRequest, db: Session = Depends(get_db)):
     """Add a folder to the sync list."""
-    nas_root = _get_nas_root(db)
+    nas_root = get_nas_root(db)
     path = req.path.strip().rstrip("/")
 
-    # Validate path exists
-    full_path = os.path.join(nas_root, path.lstrip("/"))
+    # Confine: reject paths that resolve outside the NAS root (403).
+    full_path = resolve_within_nas(db, path)
     if not os.path.exists(full_path):
         raise HTTPException(status_code=400, detail=f"Folder not found: {path}")
     if not os.path.isdir(full_path):
@@ -148,7 +144,7 @@ async def toggle_sync_folder(folder_id: int, db: Session = Depends(get_db)):
 @router.post("/rescan")
 async def rescan(db: Session = Depends(get_db)):
     """Force re-scan all sync folders and regenerate the index."""
-    nas_root = _get_nas_root(db)
+    nas_root = get_nas_root(db)
     folders = db.query(SyncFolder).all()
 
     start = time.time()
@@ -166,7 +162,7 @@ async def rescan(db: Session = Depends(get_db)):
 @router.get("/status")
 async def sync_status(db: Session = Depends(get_db)):
     """Get current sync status."""
-    nas_root = _get_nas_root(db)
+    nas_root = get_nas_root(db)
     folders = db.query(SyncFolder).all()
     status = sync_service.get_sync_status(nas_root, folders, db)
     return status
