@@ -1153,7 +1153,7 @@ async def set_folder_tag(
 
 # ── File-type detection for missing extensions ──────────────────────
 
-_AUDIO_EXT = AUDIO_EXTENSIONS | {".opus"}
+_AUDIO_EXT = AUDIO_EXTENSIONS
 _IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tiff"}
 _VIDEO_EXT = {".mp4", ".avi", ".mkv", ".mov", ".webm"}
 _ALL_KNOWN = _AUDIO_EXT | _IMAGE_EXT | _VIDEO_EXT | {
