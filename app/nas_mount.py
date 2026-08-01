@@ -2,6 +2,7 @@
 NAS Mount Manager - Mounts SMB/NFS shares to local directories.
 """
 import os
+import re
 import subprocess
 import tempfile
 import logging
@@ -12,21 +13,49 @@ logger = logging.getLogger(__name__)
 MOUNT_BASE = "/tmp/nas_mnt"
 CREDS_DIR = "/tmp/nas_creds"
 
+_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
 
 def _get_mount_point(share: str) -> str:
     """Generate a local mount point path from the share name."""
-    safe_name = share.replace("/", "_").replace("\\", "_").strip("_") or "default"
+    safe_name = _SAFE_NAME_RE.sub("_", share).strip("._") or "default"
     return os.path.join(MOUNT_BASE, safe_name)
 
 
+def _validate_mount_inputs(address: str, share: str, port: str = "", username: str = "") -> str | None:
+    """Reject option-injection / traversal vectors. Returns an error message or None."""
+    if not address or not share:
+        return "Address and share are required"
+    for label, value in (("address", address), ("share", share)):
+        if value.startswith("-"):
+            return f"{label} must not start with '-'"
+        if any(ord(c) < 32 for c in value):
+            return f"{label} contains control characters"
+    if port and (not port.isdigit() or not (1 <= int(port) <= 65535)):
+        return "Invalid port"
+    if username and any(ord(c) < 32 for c in username):
+        return "Username contains control characters"
+    return None
+
+
 def _write_credentials(username: str, password: str) -> str:
-    """Write SMB credentials to a temporary file. Returns the file path."""
+    """Write SMB credentials to a per-user temp file (0600, atomic). Returns the path."""
     os.makedirs(CREDS_DIR, exist_ok=True)
-    creds_path = os.path.join(CREDS_DIR, "smb_credentials")
-    with open(creds_path, "w") as f:
-        f.write(f"username={username}\n")
-        f.write(f"password={password}\n")
-    os.chmod(creds_path, 0o600)
+    safe_user = _SAFE_NAME_RE.sub("_", username) or "default"
+    creds_path = os.path.join(CREDS_DIR, f"smb_credentials_{safe_user}")
+    fd, tmp_path = tempfile.mkstemp(dir=CREDS_DIR, prefix=".smb_creds_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(f"username={username}\n")
+            f.write(f"password={password}\n")
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, creds_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     return creds_path
 
 
@@ -44,6 +73,10 @@ def mount_nas(
     """
     if not address or not share:
         return {"success": False, "mount_point": "", "message": "Address and share are required"}
+
+    validation_error = _validate_mount_inputs(address, share, port, username)
+    if validation_error:
+        return {"success": False, "mount_point": "", "message": validation_error}
 
     mount_point = _get_mount_point(share)
     os.makedirs(mount_point, exist_ok=True)
@@ -99,7 +132,7 @@ def _mount_smb(
 
     opts.extend(["vers=3.0", "nodev", "nosuid"])
 
-    cmd = ["mount", "-t", "cifs", source, mount_point, "-o", ",".join(opts)]
+    cmd = ["mount", "-t", "cifs", "-o", ",".join(opts), "--", source, mount_point]
     result = _run(cmd)
 
     if result.returncode == 0:
@@ -115,7 +148,7 @@ def _mount_nfs(
     """Mount an NFS share."""
     source = f"{address}:/{share}"
 
-    cmd = ["mount", "-t", "nfs", "-o", f"port={port},nfsvers=3,tcp,soft,timeo=10", source, mount_point]
+    cmd = ["mount", "-t", "nfs", "-o", f"port={port},nfsvers=3,tcp,soft,timeo=10", "--", source, mount_point]
     result = _run(cmd)
 
     if result.returncode == 0:
@@ -132,7 +165,10 @@ def unmount_nas(share: str) -> dict:
     if not os.path.ismount(mount_point):
         return {"success": True, "message": "Not currently mounted"}
 
-    result = _run(["umount", mount_point])
+    try:
+        result = _run(["umount", "--", mount_point])
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": "Unmount timed out"}
     if result.returncode == 0:
         return {"success": True, "message": f"Unmounted {mount_point}"}
     else:
