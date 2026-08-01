@@ -9,7 +9,6 @@ from typing import Optional
 import yt_dlp
 import asyncio
 import urllib.request
-import urllib.error
 from urllib.parse import urlparse, parse_qs, unquote
 import re
 import os
@@ -265,7 +264,7 @@ async def fetch_video_info_async(url: str) -> dict:
 
         return None
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _fetch_video_info)
 
 async def fetch_playlist_info_async(url: str) -> dict:
@@ -302,7 +301,7 @@ async def fetch_playlist_info_async(url: str) -> dict:
 
         return None
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _fetch_playlist_info)
 
 def is_playlist_url(url: str) -> bool:
@@ -440,7 +439,7 @@ async def fetch_channel_info_async(url: str) -> dict:
 
         return None
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _fetch_channel_info)
 
 
@@ -564,7 +563,7 @@ async def websocket_progress(websocket: WebSocket):
                     task_id = message.get("task_id")
                     if task_id:
                         await download_manager.cancel_download(task_id)
-            except:
+            except Exception:
                 pass
                 
     except WebSocketDisconnect:
