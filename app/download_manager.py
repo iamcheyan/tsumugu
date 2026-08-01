@@ -187,9 +187,10 @@ class DownloadManager:
             if row is None:
                 logger.warning("No DownloadHistory row for task %s; skipping writeback", task.id)
                 return
-            row.status = status
+            # setattr keeps mypy happy (Column-typed attributes)
+            setattr(row, "status", status)
             if file_path is not None:
-                row.file_path = file_path
+                setattr(row, "file_path", file_path)
             db.commit()
         except Exception:
             logger.exception("Failed to update DownloadHistory for task %s", task.id)

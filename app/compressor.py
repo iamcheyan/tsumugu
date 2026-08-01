@@ -223,9 +223,12 @@ class Compressor:
 
     def _broadcast_sync(self, task: CompressTask):
         """Broadcast progress (thread-safe via loop)."""
+        loop = self._loop
+        if loop is None:
+            return
         broadcast_sync(
             self.websockets,
-            self._loop,
+            loop,
             build_message("compress_progress", **self._progress_fields(task)),
         )
 

@@ -73,7 +73,7 @@ def _validate_direct_url(url: str) -> None:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
         raise HTTPException(status_code=400, detail="Could not resolve host")
-    addresses = {info[4][0] for info in infos}
+    addresses = {info[4][0] for info in infos if isinstance(info[4][0], str)}
     if not addresses or not all(_is_public_ip(a) for a in addresses):
         raise HTTPException(status_code=400, detail="URL resolves to a non-public address")
 

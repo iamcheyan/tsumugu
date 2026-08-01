@@ -62,10 +62,10 @@ async def list_files(
                 f"{path.rstrip('/')}/{item}" if path != "/" else f"/{item}"
                 for item in items
             ]
-            tag_map = {}
+            tag_map: dict[str, Optional[str]] = {}
             if rel_paths:
                 for meta in db.query(FileMetadata).filter(FileMetadata.file_path.in_(rel_paths)).all():
-                    tag_map[meta.file_path] = meta.tag
+                    tag_map[str(meta.file_path)] = str(meta.tag) if meta.tag else None
 
             for item in items:
                 item_path = os.path.join(full_path, item)
