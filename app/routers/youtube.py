@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import Config, DownloadHistory
+from ..models import DownloadHistory
 from ..download_manager import download_manager, DownloadTask, DownloadStatus
 from ..compressor import compressor
 from ..paths import get_nas_root, resolve_within_nas
