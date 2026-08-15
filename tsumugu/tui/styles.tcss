@@ -1,0 +1,318 @@
+/* ════════════════════════════════════════════════════════════════════════
+   Tsumugu TUI — minimal command-driven layout
+   ════════════════════════════════════════════════════════════════════════ */
+
+Screen {
+    background: #1a1b26;
+    color: #c0caf5;
+}
+
+/* ── Command input (top) ────────────────────────────────────────────────── */
+#cmd-input {
+    dock: top;
+    height: 3;
+    margin: 0 0 0 0;
+    border: tall #2a2e44;
+    background: #24283b;
+    color: #c0caf5;
+    padding: 0 1;
+}
+
+#cmd-input:focus {
+    border: tall #7aa2f7;
+}
+
+/* ── Main split: log + files ────────────────────────────────────────────── */
+#main-area {
+    height: 1fr;
+}
+
+/* ── Log pane (left) ────────────────────────────────────────────────────── */
+#log-pane {
+    width: 1fr;
+    height: 1fr;
+    background: #1f2335;
+    border: tall #2a2e44;
+    padding: 0;
+}
+
+#log-pane:focus-within {
+    border: tall #7aa2f7;
+}
+
+#log {
+    height: 1fr;
+    background: #1f2335;
+    padding: 0 1;
+    scrollbar-gutter: stable;
+}
+
+/* ── Files pane (right) ─────────────────────────────────────────────────── */
+#files-pane {
+    width: 40;
+    min-width: 24;
+    max-width: 60;
+    height: 1fr;
+    background: #24283b;
+    border: tall #2a2e44;
+    padding: 0;
+    scrollbar-gutter: stable;
+}
+
+#files-pane:focus-within {
+    border: tall #7dcfff;
+}
+
+#path-label {
+    background: #292e42;
+    color: #7dcfff;
+    padding: 0 1;
+    width: 100%;
+    text-style: bold;
+    border-bottom: solid #2a2e44;
+}
+
+#file-table {
+    height: 1fr;
+    background: #24283b;
+    padding: 0;
+}
+
+DataTable > .datatable--header {
+    background: #292e42;
+    color: #565f89;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: #7aa2f7 30%;
+    color: #ffffff;
+}
+
+DataTable > .datatable--hover {
+    background: #3b4054;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+Footer {
+    background: #292e42;
+    color: #565f89;
+    height: 1;
+}
+
+Footer > .footer--key {
+    background: #292e42;
+    color: #7aa2f7;
+    text-style: bold;
+}
+
+Footer > .footer--description {
+    color: #565f89;
+}
+
+Footer > .footer--highlight {
+    background: #7aa2f7 30%;
+    color: #ffffff;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+Button {
+    background: #292e42;
+    border: tall #3b4261;
+    color: #c0caf5;
+    margin: 0 1 0 0;
+}
+
+Button:hover {
+    background: #3b4054;
+    border: tall #7aa2f7;
+    color: #ffffff;
+}
+
+Button.-success {
+    background: #9ece6a 20%;
+    border: tall #9ece6a;
+    color: #9ece6a;
+}
+
+Button.-success:hover {
+    background: #9ece6a 40%;
+    color: #ffffff;
+}
+
+Button.-error {
+    background: #f7768e 20%;
+    border: tall #f7768e;
+    color: #f7768e;
+}
+
+Button.-error:hover {
+    background: #f7768e 40%;
+    color: #ffffff;
+}
+
+Button.-warning {
+    background: #e0af68 20%;
+    border: tall #e0af68;
+    color: #e0af68;
+}
+
+Button.-warning:hover {
+    background: #e0af68 40%;
+    color: #ffffff;
+}
+
+/* ── Select ─────────────────────────────────────────────────────────────── */
+Select {
+    background: #1f2335;
+    border: tall #3b4261;
+    color: #c0caf5;
+}
+
+Select:focus {
+    border: tall #7aa2f7;
+}
+
+Select > .select--current {
+    background: #292e42;
+    color: #c0caf5;
+}
+
+/* ── Input ──────────────────────────────────────────────────────────────── */
+Input {
+    background: #1f2335;
+    border: tall #3b4261;
+    color: #c0caf5;
+}
+
+Input:focus {
+    border: tall #7aa2f7;
+}
+
+/* ── Settings screen ────────────────────────────────────────────────────── */
+SettingsScreen {
+    align: center middle;
+}
+
+#settings-card {
+    width: 88;
+    max-width: 120;
+    height: auto;
+    max-height: 88%;
+    background: #24283b;
+    border: tall #3b4261;
+    border-title-color: #7aa2f7;
+    border-title-style: bold;
+    padding: 1 2;
+    scrollbar-gutter: stable;
+}
+
+#settings-card > Label {
+    width: 100%;
+    text-align: left;
+    color: #7dcfff;
+    text-style: bold;
+    padding: 1 0 0 0;
+}
+
+.settings-row {
+    height: 3;
+    align-vertical: middle;
+    padding: 0 0 0 2;
+}
+
+.settings-row Label {
+    width: 14;
+    min-width: 14;
+    color: #565f89;
+    margin: 0 1 0 0;
+}
+
+.settings-row Input {
+    width: 1fr;
+}
+
+.settings-row Select {
+    width: 1fr;
+}
+
+#dep-status, #cache-stats, #mount-status {
+    color: #565f89;
+    background: #1f2335;
+    border: tall #2a2e44;
+    margin: 1 2;
+    padding: 1 1;
+}
+
+/* ── Sync screen ────────────────────────────────────────────────────────── */
+SyncScreen {
+    align: center middle;
+}
+
+#sync-title {
+    color: #7aa2f7;
+    text-style: bold;
+    width: 100%;
+    text-align: center;
+    padding: 0 0 1 0;
+    border-bottom: solid #2a2e44;
+}
+
+#sync-status {
+    color: #565f89;
+    background: #1f2335;
+    border: tall #2a2e44;
+    padding: 1 1;
+    margin: 1 0;
+}
+
+#sync-table {
+    height: auto;
+    max-height: 12;
+    background: #1f2335;
+    border: tall #2a2e44;
+    margin: 1 0;
+}
+
+/* ── Dialogs ─────────────────────────────────────────────────────────────── */
+InputDialog, ConfirmDialog {
+    align: center middle;
+}
+
+#input-dialog, #confirm-dialog {
+    width: 60;
+    max-width: 80;
+    height: auto;
+    background: #24283b;
+    border: tall #7aa2f7;
+    padding: 1 2;
+}
+
+#input-dialog Label, #confirm-dialog Label {
+    color: #c0caf5;
+    text-style: bold;
+    padding: 0 0 1 0;
+}
+
+#dialog-input {
+    width: 100%;
+    margin: 0 0 1 0;
+    border: tall #7aa2f7;
+}
+
+#input-dialog Horizontal, #confirm-dialog Horizontal {
+    height: 3;
+    align-horizontal: right;
+}
+
+#dialog-ok, #confirm-yes {
+    margin: 0 1 0 0;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+Scrollbar {
+    background: #292e42;
+    scrollbar-color: #7aa2f7 40%;
+    scrollbar-color-active: #7aa2f7 80%;
+    scrollbar-color-hover: #7aa2f7 60%;
+}
