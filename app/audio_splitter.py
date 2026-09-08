@@ -123,25 +123,25 @@ class AudioSplitter:
 
         split_files: List[Dict[str, Any]] = []
         base_name = os.path.splitext(os.path.basename(audio_file_path))[0]
-        for chapter in chapter_infos:
+        for chapter_info in chapter_infos:
             output_filename = (
-                f"{base_name} - Track {chapter.track_number:02d} - "
-                f"{chapter.title}.{output_format}"
+                f"{base_name} - Track {chapter_info.track_number:02d} - "
+                f"{chapter_info.title}.{output_format}"
             )
             output_path = os.path.join(output_dir, output_filename)
             if await self._extract_segment(
                 audio_file_path,
                 output_path,
-                chapter.start_time,
-                chapter.end_time,
+                chapter_info.start_time,
+                chapter_info.end_time,
                 output_format,
             ):
                 split_files.append(
                     {
                         "file_path": output_path,
-                        "title": chapter.title,
-                        "duration": int(chapter.end_time - chapter.start_time),
-                        "track_number": chapter.track_number,
+                        "title": chapter_info.title,
+                        "duration": int(chapter_info.end_time - chapter_info.start_time),
+                        "track_number": chapter_info.track_number,
                     }
                 )
 

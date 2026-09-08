@@ -7,7 +7,7 @@ import os
 import re
 import subprocess
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from datetime import datetime, timedelta
 import yt_dlp
@@ -62,13 +62,12 @@ class DownloadTask:
     process: Optional[subprocess.Popen] = None
     file_path: Optional[str] = None
     # Timestamped step log for the task-detail panel.
-    events: List[Dict[str, str]] = None
+    events: List[Dict[str, str]] = field(default_factory=list)
 
     def __post_init__(self):
         if self.created_at is None:
             self.created_at = datetime.now()
-        if self.events is None:
-            self.events = []
+
 
 
 class DownloadManager:
@@ -184,7 +183,8 @@ class DownloadManager:
     
     async def cancel_download(self, task_id: int) -> bool:
         """Cancel a download task (kills the subprocess if one is running)"""
-        if task_id not in self.tasks:
+        task = self.tasks.get(task_id)
+        if task is None:
             return False
         task.status = DownloadStatus.CANCELLED
         task.completed_at = datetime.now()
