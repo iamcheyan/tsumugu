@@ -394,7 +394,13 @@ class DownloadManager:
         outputtmpl = os.path.join(task.save_path, '%(title)s.%(ext)s')
         return {
             'outtmpl': outputtmpl,
+            # YouTube currently serves this host's default audio URLs with
+            # HTTP 403. The Android client exposes a combined stream that
+            # ffmpeg can reliably extract to the requested audio format.
             'format': 'bestaudio/best',
+            'extractor_args': {
+                'youtube': {'player_client': ['android']},
+            },
             'nooverwrites': True,
             'nopostoverwrites': True,
             'no_playlist': True,  # a video URL with &list= params must not fetch the playlist
