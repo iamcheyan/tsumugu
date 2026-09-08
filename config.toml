@@ -1,0 +1,17 @@
+# Non-secret tsumugu defaults. Keep passwords out of this file.
+service_url = "http://127.0.0.1:8005"
+
+[nas]
+address = "192.168.3.10"
+protocol = "smb"
+share = "NAS"
+port = "445"
+username = "media"
+root = "/tmp/nas_mnt/NAS"
+
+[media]
+default_path = "/Media/music"
+default_format = "mp3"
+split_policy = "auto"
+keep_original = false
+long_audio_seconds = 1200

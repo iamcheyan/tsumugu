@@ -101,8 +101,8 @@ class VideoInfo(BaseModel):
 def _resolve_save_path(save_path: str, db: Session) -> str:
     """Resolve UI save paths inside the configured NAS root.
 
-    The browser works with NAS-relative paths like /Music. The downloader needs
-    the mounted filesystem path, for example /tmp/nas_mnt/NAS/Music.
+    The browser works with NAS-relative paths like /Media/music. The downloader needs
+    the mounted filesystem path, for example /tmp/nas_mnt/NAS/Media/music.
     Confinement follows symlinks (realpath) so a symlink inside the NAS root
     cannot redirect the download outside it.
     """
@@ -111,7 +111,7 @@ def _resolve_save_path(save_path: str, db: Session) -> str:
     abs_root = os.path.abspath(nas_root)
     # Treat the input as pre-resolved only when it is an absolute path that
     # already points inside the NAS root; everything else is NAS-relative
-    # (frontend paths like "/Music" are POSIX-absolute but app-relative).
+    # (frontend paths like "/Media/music" are POSIX-absolute but app-relative).
     if os.path.isabs(requested) and (
         requested == abs_root or requested.startswith(abs_root + os.sep)
     ):
@@ -122,7 +122,7 @@ def _resolve_save_path(save_path: str, db: Session) -> str:
         if real_req != real_root and not real_req.startswith(real_root + os.sep):
             raise HTTPException(status_code=403, detail="Save path must be inside the configured NAS root")
         return real_req
-    # NAS-relative (frontend paths like "/Music" are POSIX-absolute but
+    # NAS-relative (frontend paths like "/Media/music" are POSIX-absolute but
     # app-relative); confined by resolve_within_nas.
     return resolve_within_nas(db, requested)
 

@@ -2,6 +2,11 @@
 
 from dataclasses import dataclass
 
+from ..settings import get_settings
+
+
+_MEDIA_CONFIG = get_settings().media
+
 
 @dataclass(frozen=True)
 class AutomationPolicy:
@@ -12,11 +17,11 @@ class AutomationPolicy:
     detection as a fallback.
     """
 
-    default_format: str = "mp3"
-    default_path: str = "/Music"
-    default_split: str = "auto"
-    default_keep_original: bool = False
-    long_audio_seconds: int = 20 * 60
+    default_format: str = _MEDIA_CONFIG.default_format
+    default_path: str = _MEDIA_CONFIG.default_path
+    default_split: str = _MEDIA_CONFIG.split_policy
+    default_keep_original: bool = _MEDIA_CONFIG.keep_original
+    long_audio_seconds: int = _MEDIA_CONFIG.long_audio_seconds
 
 
 def choose_split_policy(

@@ -10,6 +10,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script>const TSUMUGU_DEFAULT_PATH = {{ default_media_path|tojson }};</script>
     <script>
         document.addEventListener('htmx:configRequest', function(event) {
             if (event.detail.verb === 'put') {
@@ -666,7 +667,7 @@
                     <p class="settings-hint">Where downloaded files are saved</p>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text"><i class="bi bi-download"></i></span>
-                        <input type="text" id="cfg-save-path" class="form-control" value="${escHtml(cfg.save_path || '/Music')}">
+                        <input type="text" id="cfg-save-path" class="form-control" value="${escHtml(cfg.save_path || TSUMUGU_DEFAULT_PATH)}">
                         <button class="btn btn-primary" onclick="saveConfig('save_path', document.getElementById('cfg-save-path').value)">
                             <i class="bi bi-check-lg"></i>
                         </button>
@@ -837,12 +838,12 @@
                     <label class="settings-label">Add Index Folder</label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text"><i class="bi bi-folder-plus"></i></span>
-                        <input type="text" id="sync-new-folder" class="form-control" placeholder="/Music">
+                        <input type="text" id="sync-new-folder" class="form-control" placeholder="{{ default_media_path }}">
                         <button class="btn btn-primary" onclick="addSyncFolder()">
                             <i class="bi bi-plus-lg"></i>
                         </button>
                     </div>
-                    <div class="form-text">Path relative to NAS root (e.g. /Music, /Podcast)</div>
+                    <div class="form-text">Path relative to NAS root (e.g. {{ default_media_path }}, /Podcast)</div>
                 </div>
 
                 <!-- Indexed Folders List -->

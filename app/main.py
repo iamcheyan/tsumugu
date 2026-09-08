@@ -8,6 +8,7 @@ import shutil
 from .database import create_tables, get_db
 from .models import Config
 from .paths import get_nas_root
+from .settings import get_settings
 from .routers import config_router, files_router, youtube_router, audio_router, sync_router
 from .routers.media import router as media_router
 from .download_manager import download_manager
@@ -45,11 +46,13 @@ def path_to_id(path):
     return quote(path, safe='').replace('%2F', '--')
 
 templates.env.filters['path_to_id'] = path_to_id
+templates.env.globals['default_media_path'] = get_settings().media.default_path
 
 # Create database tables on startup
 @app.on_event("startup")
 async def startup_event():
     create_tables()
+    settings = get_settings()
 
     # Migration: add 'tag' column to file_metadata if missing
     try:
@@ -77,7 +80,7 @@ async def startup_event():
         # Check if NAS root config exists
         nas_root = db.query(Config).filter(Config.key == "nas_root").first()
         if not nas_root:
-            db.add(Config(key="nas_root", value="/nas", description="Root directory for NAS files"))
+            db.add(Config(key="nas_root", value=settings.nas.root, description="Root directory for NAS files"))
         
         # Check if deletion strategy config exists
         deletion_strategy = db.query(Config).filter(Config.key == "deletion_strategy").first()
@@ -91,17 +94,25 @@ async def startup_event():
 
         # NAS connection defaults
         nas_defaults = {
-            "nas_address": ("", "NAS IP address or hostname (e.g. 192.168.1.100)"),
-            "nas_protocol": ("smb", "Connection protocol: smb or nfs"),
-            "nas_share": ("", "Shared folder name (e.g. volume1/music)"),
-            "nas_username": ("", "NAS login username"),
+            "nas_address": (settings.nas.address, "NAS IP address or hostname (e.g. 192.168.1.100)"),
+            "nas_protocol": (settings.nas.protocol, "Connection protocol: smb or nfs"),
+            "nas_share": (settings.nas.share, "Shared folder name (e.g. volume1/music)"),
+            "nas_username": (settings.nas.username, "NAS login username"),
             "nas_password": ("", "NAS login password"),
-            "nas_port": ("445", "SMB port (default 445) or NFS port (default 2049)"),
+            "nas_port": (settings.nas.port, "SMB port (default 445) or NFS port (default 2049)"),
         }
         for key, (default_val, desc) in nas_defaults.items():
             existing = db.query(Config).filter(Config.key == key).first()
             if not existing:
                 db.add(Config(key=key, value=default_val, description=desc))
+            elif key != "nas_password":
+                setattr(existing, "value", default_val)
+
+        save_path = db.query(Config).filter(Config.key == "save_path").first()
+        if save_path:
+            setattr(save_path, "value", settings.media.default_path)
+        else:
+            db.add(Config(key="save_path", value=settings.media.default_path, description="Default media download path"))
 
         db.commit()
 
@@ -149,16 +160,15 @@ async def startup_event():
         
         db.commit()
 
-        # Add default sync folder (/Music) if no sync folders configured
+        # Add default sync folder from the shared config if none is configured
         from .models import SyncFolder
         sync_count = db.query(SyncFolder).count()
         if sync_count == 0:
-            # Check if /Music exists in NAS root
-            music_path = os.path.join(get_nas_root(db), "Music")
+            music_path = os.path.join(get_nas_root(db), settings.media.default_path.lstrip("/"))
             if os.path.isdir(music_path):
-                db.add(SyncFolder(path="/Music", name="Music", enabled=True))
+                db.add(SyncFolder(path=settings.media.default_path, name="Music", enabled=True))
                 db.commit()
-                print("[Index] Added default index folder: /Music")
+                print(f"[Index] Added default index folder: {settings.media.default_path}")
 
     finally:
         db.close()

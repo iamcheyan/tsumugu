@@ -32,7 +32,7 @@ def resolve_within_nas(db: Session, path: str, *, default_root: bool = True) -> 
 
     Args:
         db: SQLAlchemy session (used to read the nas_root config).
-        path: NAS-relative path, e.g. "/Music/album".
+        path: NAS-relative path, e.g. "/Media/music/album".
         default_root: if True (default), path "/" resolves to the NAS root.
 
     Returns:

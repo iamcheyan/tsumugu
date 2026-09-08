@@ -115,7 +115,7 @@
                        placeholder="Save to"
                        list="path-history">
                 <datalist id="path-history"></datalist>
-                <input type="hidden" id="save-location" name="save_path" value="/Music">
+                <input type="hidden" id="save-location" name="save_path" value="{{ default_media_path }}">
             </div>
             <span class="text-muted d-flex align-items-center gap-1" id="nas-status-label" style="font-size: 0.75rem; white-space: nowrap;"></span>
         </div>
@@ -178,7 +178,7 @@
         </div>
 
         <!-- Hidden Save Path (synced from visible input in confirmDownload) -->
-        <input type="hidden" id="save-location" name="save_path" value="/Music">
+        <input type="hidden" id="save-location" name="save_path" value="{{ default_media_path }}">
 
         <!-- Channel Preview Card (shown after parsing channel URL) -->
         <div id="channel-preview" class="channel-preview mt-2" style="display: none; background: var(--bs-body-bg); border: 1px solid var(--bs-border-color); border-radius: 8px; padding: 12px;">
@@ -398,7 +398,7 @@
             // Set save path: use saved value, fall back to NAS root
             const savePathInput = document.getElementById('save-path-input');
             const savedSavePath = cfg.save_path;
-            const initPath = savedSavePath || '/Music';
+            const initPath = savedSavePath || TSUMUGU_DEFAULT_PATH;
             if (savePathInput) {
                 savePathInput.value = savedSavePath || mountRoot;
                 document.getElementById('save-location').value = savedSavePath || mountRoot;
@@ -731,7 +731,7 @@
         const preview = document.getElementById('channel-preview');
         const channelData = JSON.parse(preview.dataset.channelData || '{}');
         const channelUrl = preview.dataset.channelUrl || '';
-        const savePath = document.getElementById('save-path-input').value || '/Music';
+        const savePath = document.getElementById('save-path-input').value || TSUMUGU_DEFAULT_PATH;
 
         // Get selected videos
         const checkboxes = document.querySelectorAll('.channel-video-checkbox:checked');
@@ -953,7 +953,7 @@
         const preview = document.getElementById('video-preview');
         const isDirect = preview.dataset.isDirect === 'true';
         const isPlaylist = preview.dataset.isPlaylist === 'true';
-        const savePath = document.getElementById('save-path-input').value || '/Music';
+        const savePath = document.getElementById('save-path-input').value || TSUMUGU_DEFAULT_PATH;
         document.getElementById('save-location').value = savePath;
         savePathHistory();
 

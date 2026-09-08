@@ -7,8 +7,10 @@ import sys
 import urllib.error
 import urllib.request
 
+from ..settings import get_settings
 
-DEFAULT_BASE_URL = os.environ.get("TSUMUGU_URL", "http://127.0.0.1:8005")
+
+DEFAULT_BASE_URL = os.environ.get("TSUMUGU_URL", get_settings().service_url)
 
 
 def request_json(method: str, path: str, payload: dict | None = None) -> dict:
@@ -39,12 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     submit = subparsers.add_parser("submit")
     submit.add_argument("url")
-    submit.add_argument("--format", choices=("mp3", "m4a", "flac"), default="mp3")
-    submit.add_argument("--path", default="/Music", dest="save_path")
+    submit.add_argument("--format", choices=("mp3", "m4a", "flac"), default=get_settings().media.default_format)
+    submit.add_argument("--path", default=get_settings().media.default_path, dest="save_path")
     submit.add_argument(
         "--split",
         choices=("auto", "none", "chapter_info", "silence_detection"),
-        default="auto",
+        default=get_settings().media.split_policy,
         dest="split_policy",
     )
     submit.add_argument("--keep-original", action="store_true")

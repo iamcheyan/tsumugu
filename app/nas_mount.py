@@ -22,6 +22,26 @@ def _get_mount_point(share: str) -> str:
     return os.path.join(MOUNT_BASE, safe_name)
 
 
+def _get_mounted_username(mount_point: str) -> str:
+    """Read the username from an existing CIFS mount without exposing secrets."""
+    try:
+        result = subprocess.run(
+            ["findmnt", "-no", "OPTIONS", "--target", mount_point],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if result.returncode != 0:
+        return ""
+    for option in result.stdout.strip().split(","):
+        if option.startswith("username="):
+            return option.split("=", 1)[1]
+    return ""
+
+
 def _validate_mount_inputs(address: str, share: str, port: str = "", username: str = "") -> str | None:
     """Reject option-injection / traversal vectors. Returns an error message or None."""
     if not address or not share:
@@ -82,7 +102,17 @@ def mount_nas(
     os.makedirs(mount_point, exist_ok=True)
 
     if os.path.ismount(mount_point):
-        return {"success": True, "mount_point": mount_point, "message": f"Already mounted at {mount_point}"}
+        mounted_username = _get_mounted_username(mount_point)
+        if username and mounted_username and mounted_username != username:
+            unmount_result = unmount_nas(share)
+            if not unmount_result["success"]:
+                return {
+                    "success": False,
+                    "mount_point": mount_point,
+                    "message": f"Mounted as {mounted_username}; failed to switch account: {unmount_result['message']}",
+                }
+        else:
+            return {"success": True, "mount_point": mount_point, "message": f"Already mounted at {mount_point}"}
 
     try:
         if protocol == "nfs":

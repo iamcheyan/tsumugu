@@ -10,6 +10,7 @@ from ..database import get_db
 from ..download_manager import DownloadStatus, DownloadTask, download_manager
 from ..models import DownloadHistory
 from ..paths import resolve_within_nas
+from ..settings import get_settings
 from .youtube import (
     _is_direct_url,
     _validate_direct_url,
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/api/media", tags=["media"])
 class MediaJobRequest(BaseModel):
     url: str
     format: str = Field(default="mp3", pattern="^(mp3|m4a|flac)$")
-    save_path: str = "/Music"
+    save_path: str = Field(default_factory=lambda: get_settings().media.default_path)
     split_policy: str = Field(default="auto", pattern="^(auto|none|chapter_info|silence_detection)$")
     keep_original: bool = False
     title: str = ""
