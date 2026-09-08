@@ -9,6 +9,7 @@ from .database import create_tables, get_db
 from .models import Config
 from .paths import get_nas_root
 from .routers import config_router, files_router, youtube_router, audio_router, sync_router
+from .routers.media import router as media_router
 from .download_manager import download_manager
 from .compressor import compressor
 from .nas_mount import mount_nas
@@ -166,6 +167,7 @@ async def startup_event():
 app.include_router(config_router)
 app.include_router(files_router)
 app.include_router(youtube_router)
+app.include_router(media_router)
 app.include_router(audio_router)
 app.include_router(sync_router)
 
