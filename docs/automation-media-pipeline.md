@@ -26,7 +26,8 @@ Telegram 消息 / CLI / Web UI
 - 任务：内存中的 DownloadManager，数据库保存历史
 - NAS 根目录：配置表中的 `nas_root`
 - 当前实例实际配置：`/tmp/nas_mnt/NAS`
-- 默认音乐相对目录：`/Media/music`
+- tsumugu 应用根：NAS 的 `Media` 子目录
+- 默认音乐相对目录：`/music`（实际路径为 NAS `Media/music`）
 - 非秘密运行配置：项目根目录 `config.toml`
 - NAS 密码：只保存在本机数据库/凭据存储，不进入 Git
 - 运行入口：`run.py`，默认端口通过 `PORT` 环境变量控制，当前默认 8005
@@ -52,7 +53,9 @@ Telegram 调用不依赖预览卡片、浏览器 localStorage、WebSocket 或页
 
 ### 3.4 NAS 路径集中管理
 
-外部调用方只传 NAS 相对路径，例如 `/Media/music`。真实路径必须统一经过 `resolve_within_nas()`，禁止自动化接口绕过路径边界检查。
+外部调用方只传应用根下的相对路径，例如 `/music`。真实路径必须统一经过
+`resolve_within_nas()`，禁止自动化接口绕过路径边界检查。应用根固定为 NAS 的
+`Media` 子目录，不能浏览或下载到共享根下的其他目录。
 
 ### 3.5 可恢复、可观察
 
@@ -144,7 +147,7 @@ Hermes/Telegram 默认使用：
 
 ```text
 format: mp3
-save_path: /Media/music
+save_path: /music
 keep_original: false
 split_policy: auto
 ```
@@ -209,7 +212,7 @@ GET  /api/media/jobs/{job_id}/files
 Hermes 优先调用 JSON CLI，避免依赖网页和脆弱的自然语言日志：
 
 ```text
-python -m app.cli.media submit URL --format mp3 --path /Media/music --split auto --json
+python -m app.cli.media submit URL --format mp3 --path /music --split auto --json
 python -m app.cli.media status JOB_ID --json
 python -m app.cli.media cancel JOB_ID --json
 ```
@@ -293,7 +296,7 @@ mypy app --ignore-missing-imports  # 如果项目已有 mypy 环境
 - Web 下载功能仍然可用；
 - CLI 可以提交、查询和取消任务；
 - Hermes 技能可以调用 CLI/HTTP；
-- 默认输出进入配置 NAS 根目录下的 `/Media/music`；
+- 默认输出进入配置应用根下的 `/music`（NAS `Media/music`）；
 - 长音频可以章节优先、静音兜底拆分；
 - 章节拆分、并发输入隔离和路径安全测试通过；
 - 至少一次真实下载或等价的完整本地管线验证通过；

@@ -60,7 +60,7 @@ def get_settings() -> AppSettings:
             root=str(nas.get("root", "/tmp/nas_mnt/NAS")),
         ),
         media=MediaSettings(
-            default_path=str(media.get("default_path", "/Media/music")),
+            default_path=str(media.get("default_path", "/music")),
             default_format=str(media.get("default_format", "mp3")),
             split_policy=str(media.get("split_policy", "auto")),
             keep_original=bool(media.get("keep_original", False)),

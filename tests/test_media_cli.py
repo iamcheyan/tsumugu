@@ -16,7 +16,7 @@ class MediaCliTests(unittest.TestCase):
                     "submit",
                     "https://www.youtube.com/watch?v=abc",
                     "--path",
-                    "/Media/music",
+                    "/music",
                     "--split",
                     "auto",
                 ]
@@ -24,7 +24,7 @@ class MediaCliTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         request_json.assert_called_once()
         payload = request_json.call_args.args[2]
-        self.assertEqual(payload["save_path"], "/Media/music")
+        self.assertEqual(payload["save_path"], "/music")
         self.assertEqual(payload["split_policy"], "auto")
         json.loads(stdout.getvalue())
 

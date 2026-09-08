@@ -135,7 +135,7 @@ async def get_split_files(download_id: int, db: Session = Depends(get_db)):
 @router.get("/stream")
 async def stream_audio(request: Request, path: str = Query(..., description="Path to audio file"), db: Session = Depends(get_db)):
     """Stream audio file for playback with Range request support."""
-    # Paths from the frontend are NAS-relative (/Media/music/song.mp3); confine to root
+    # Paths from the frontend are NAS-relative (/music/song.mp3); confine to root
     path = resolve_within_nas(db, path)
 
     if not os.path.exists(path) or not os.path.isfile(path):

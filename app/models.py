@@ -45,7 +45,7 @@ class SyncFolder(Base):
     __tablename__ = "sync_folders"
 
     id = Column(Integer, primary_key=True, index=True)
-    path = Column(String(1024), unique=True, index=True)  # Relative to NAS root, e.g. "/Media/music"
+    path = Column(String(1024), unique=True, index=True)  # Relative to NAS root, e.g. "/music"
     name = Column(String(255))  # Display name
     enabled = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -10,7 +10,7 @@ class SettingsTests(unittest.TestCase):
         settings = get_settings()
         self.assertEqual(settings.nas.username, "media")
         self.assertEqual(settings.nas.share, "NAS")
-        self.assertEqual(settings.media.default_path, "/Media/music")
+        self.assertEqual(settings.media.default_path, "/music")
         self.assertEqual(settings.media.default_format, "mp3")
         self.assertEqual(settings.media.split_policy, "auto")
 

@@ -135,7 +135,9 @@ async def startup_event():
             if result["success"]:
                 nas_root = db.query(Config).filter(Config.key == "nas_root").first()
                 if nas_root:
-                    setattr(nas_root, 'value', result["mount_point"])
+                    # The SMB share is mounted at /NAS, but tsumugu is
+                    # intentionally scoped to the configured Media subtree.
+                    setattr(nas_root, 'value', settings.nas.root)
                 db.commit()
                 print(f"[NAS] Mounted {nas_addr}/{nas_share} -> {result['mount_point']}")
             else:

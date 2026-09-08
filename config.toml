@@ -7,10 +7,10 @@ protocol = "smb"
 share = "NAS"
 port = "445"
 username = "media"
-root = "/tmp/nas_mnt/NAS"
+root = "/tmp/nas_mnt/NAS/Media"
 
 [media]
-default_path = "/Media/music"
+default_path = "/music"
 default_format = "mp3"
 split_policy = "auto"
 keep_original = false
