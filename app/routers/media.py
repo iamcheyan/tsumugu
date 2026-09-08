@@ -56,6 +56,7 @@ async def submit_media_job(request: MediaJobRequest, db: Session = Depends(get_d
     save_path = resolve_within_nas(db, request.save_path)
     title = request.title.strip()
     split_mode: Optional[str] = None
+    auto_split_fallback = False
     if download_type == "youtube":
         if request.split_policy == "none":
             split_mode = None
@@ -67,6 +68,7 @@ async def submit_media_job(request: MediaJobRequest, db: Session = Depends(get_d
             lowered = title.casefold()
             if duration >= 20 * 60 or any(word in lowered for word in collection_words):
                 split_mode = "chapter_info"
+                auto_split_fallback = True
         else:
             split_mode = request.split_policy
     elif not title:
@@ -94,6 +96,7 @@ async def submit_media_job(request: MediaJobRequest, db: Session = Depends(get_d
         keep_original=request.keep_original,
         save_path=save_path,
         download_type=download_type,
+        auto_split_fallback=auto_split_fallback,
     )
     await download_manager.add_download(task)
     return {

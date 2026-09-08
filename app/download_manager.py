@@ -58,6 +58,7 @@ class DownloadTask:
     created_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     download_type: str = "youtube"  # "youtube" or "direct"
+    auto_split_fallback: bool = False
     process: Optional[subprocess.Popen] = None
     file_path: Optional[str] = None
     # Timestamped step log for the task-detail panel.
@@ -133,6 +134,7 @@ class DownloadManager:
             "current_file": task.current_file,
             "error": task.error,
             "download_type": task.download_type,
+            "auto_split_fallback": task.auto_split_fallback,
             "file_path": task.file_path,
             "created_at": task.created_at.strftime("%H:%M:%S") if task.created_at else None,
             "completed_at": task.completed_at.strftime("%H:%M:%S") if task.completed_at else None,
@@ -585,6 +587,22 @@ class DownloadManager:
                 output_dir=task.save_path,
                 output_format=task.format,
             )
+
+            # Automated jobs try embedded chapters first, then fall back to
+            # silence detection when the source has no usable chapters.
+            if (
+                not result.success
+                and task.auto_split_fallback
+                and task.split_mode == "chapter_info"
+            ):
+                self._log_event(task, "split_fallback", "没有有效章节，改用静音检测")
+                result = await audio_splitter.split_audio(
+                    audio_file_path=audio_file,
+                    split_mode="silence_detection",
+                    keep_original=task.keep_original,
+                    output_dir=task.save_path,
+                    output_format=task.format,
+                )
 
             if result.success:
                 logger.info("Successfully split %d tracks from %s", len(result.files), audio_file)
