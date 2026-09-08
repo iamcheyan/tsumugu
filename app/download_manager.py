@@ -411,8 +411,14 @@ class DownloadManager:
         try:
             self._log_event(task, "download", "yt-dlp 开始抓取与下载")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([task.url])
-            task.file_path = self._find_downloaded_file(task)
+                # Keep the exact prepared path so concurrent jobs sharing a
+                # directory cannot accidentally select another audio file.
+                info = ydl.extract_info(task.url, download=True)
+                prepared = ydl.prepare_filename(info) if info else ""
+                if prepared:
+                    task.file_path = os.path.splitext(prepared)[0] + f".{task.format}"
+            if not task.file_path or not os.path.isfile(task.file_path):
+                task.file_path = self._find_downloaded_file(task)
             self._log_event(task, "download", f"下载完成，落盘文件: {task.file_path or '(未找到)'}")
         except Exception as e:
             if task.status == DownloadStatus.CANCELLED:
@@ -576,7 +582,8 @@ class DownloadManager:
                 audio_file_path=audio_file,
                 split_mode=task.split_mode or "chapter_info",
                 keep_original=task.keep_original,
-                output_dir=task.save_path
+                output_dir=task.save_path,
+                output_format=task.format,
             )
 
             if result.success:
@@ -603,6 +610,9 @@ class DownloadManager:
     
     def _find_downloaded_file(self, task: DownloadTask) -> Optional[str]:
         """Find the downloaded audio file based on task info"""
+        if task.file_path and os.path.isfile(task.file_path):
+            return task.file_path
+
         # Look for files in the save path that match the title
         if os.path.exists(task.save_path):
             for file in os.listdir(task.save_path):
